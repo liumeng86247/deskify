@@ -12,7 +12,7 @@ void main() async {
   
   const windowOptions = WindowOptions(
     size: Size(1200, 800),
-    minimumSize: Size(1200, 600),  // 设置最小宽度为1200px，适配大多数现代网站
+    minimumSize: Size(800, 500),  // 设置最小宽度为800px
     center: true,
     title: 'Deskify',
     titleBarStyle: TitleBarStyle.hidden,

@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:webview_windows/webview_windows.dart';
 import 'package:window_manager/window_manager.dart';
-import 'dart:io';
 import '../models/app_state.dart';
 import '../widgets/custom_titlebar.dart';
+import '../services/cache_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -21,6 +21,8 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
   String _currentLoadedUrl = '';
   Size? _windowSize;
   bool _isUrlBarVisible = true; // 控制地址栏显示状态
+  DateTime? _loadStartTime; // 记录加载开始时间
+  bool _isRefreshing = false; // 是否正在刷新
 
   @override
   void initState() {
@@ -58,57 +60,27 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
   // 调整WebView缩放比例
   void _adjustWebViewZoom() async {
     if (_windowSize != null && _isWebViewInitialized) {
-      // 计算合适的缩放比例，确保内容不超出窗口
-      // 使用较小的缩放值来确保内容完全可见
-      double zoomFactor = 0.8; // 默认缩放到80%
+      final windowWidth = _windowSize!.width;
       
-      // 如果窗口特别小，进一步缩小
-      if (_windowSize!.width < 800) {
-        zoomFactor = 0.6;
-      } else if (_windowSize!.width < 1000) {
-        zoomFactor = 0.7;
+      // 根据窗口宽度动态计算缩放比例
+      // 假设大多数网站设计宽度为1200px
+      double zoomFactor = 1.0;
+      
+      // 当窗口宽度小于1200px时，按比例缩小
+      if (windowWidth < 1200) {
+        // 计算需要的缩放比例
+        zoomFactor = windowWidth / 1200;
+        
+        // 限制最小缩放比例，防止过小难以阅读
+        if (zoomFactor < 0.5) {
+          zoomFactor = 0.5;
+        }
       }
       
       // 设置缩放因子
       await _webViewController.setZoomFactor(zoomFactor);
       
-      // 通过JavaScript强制页面适配窗口
-      _webViewController.executeScript('''
-        (function() {
-          // 移除或修改viewport meta标签
-          var viewport = document.querySelector('meta[name="viewport"]');
-          if (!viewport) {
-            viewport = document.createElement('meta');
-            viewport.name = 'viewport';
-            document.head.appendChild(viewport);
-          }
-          // 设置viewport，允许缩小以适应内容
-          viewport.content = 'width=device-width, initial-scale=0.8, minimum-scale=0.5, maximum-scale=2.0, user-scalable=yes';
-          
-          // 强制设置body和html的样式
-          document.documentElement.style.maxWidth = '100vw';
-          document.documentElement.style.overflowX = 'auto';
-          document.body.style.maxWidth = '100vw';
-          document.body.style.overflowX = 'auto';
-          
-          // 防止固定宽度元素超出
-          var style = document.createElement('style');
-          style.textContent = `
-            * {
-              max-width: 100% !important;
-              box-sizing: border-box !important;
-            }
-            img, video, iframe {
-              max-width: 100% !important;
-              height: auto !important;
-            }
-          `;
-          if (!document.getElementById('deskify-responsive-style')) {
-            style.id = 'deskify-responsive-style';
-            document.head.appendChild(style);
-          }
-        })();
-      ''');
+      debugPrint('Deskify: 窗口宽度 ${windowWidth.toInt()}px，缩放比例 ${(zoomFactor * 100).toInt()}%');
     }
   }
 
@@ -122,15 +94,33 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
         setState(() {
           _loadingProgress = (state == LoadingState.navigationCompleted) ? 1.0 : 0.5;
         });
-        // 加载完成后调整缩放
+        
+        // 加载完成后处理
         if (state == LoadingState.navigationCompleted) {
-          _adjustWebViewZoom();
+          _onLoadComplete();
         }
       }
     });
     
+    // 监听WebView错误（网络错误等）
+    _webViewController.url.listen((url) {
+      // URL变化监听，用于检测导航失败
+      debugPrint('🌐 WebView URL changed: $url');
+    });
+    
     // 初始化缩放
     _adjustWebViewZoom();
+  }
+
+  // 加载完成回调
+  void _onLoadComplete() async {
+    _adjustWebViewZoom();
+    
+    // 静默更新缓存，不显示提示
+    if (_loadStartTime != null) {
+      final appState = context.read<AppState>();
+      await appState.updateCacheAsSuccess(_currentLoadedUrl);
+    }
   }
 
   @override
@@ -151,10 +141,20 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
     try {
       appState.setLoading(true);
       appState.setError(null);
+      _loadStartTime = DateTime.now(); // 记录加载开始时间
+      _isRefreshing = false; // 标记不是刷新操作
+      
       await appState.saveUrl(url);
       
       if (_isWebViewInitialized && _currentLoadedUrl != url) {
         _currentLoadedUrl = url;
+        
+        // 启动30秒超时监控
+        _startLoadTimeoutMonitor(url, appState);
+        
+        // 启动网络错误监测（5秒内）
+        _startNetworkErrorMonitor(url, appState);
+        
         await _webViewController.loadUrl(url);
         // 加载后隐藏地址栏
         setState(() {
@@ -163,14 +163,275 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
       }
     } catch (e) {
       appState.setError('加载失败: $e');
+      debugPrint('❌ 加载异常，尝试使用缓存: $e');
+      _tryLoadFromCache(appState);
     } finally {
       appState.setLoading(false);
     }
   }
 
-  void _refresh() {
+  // 启动超时监控
+  void _startLoadTimeoutMonitor(String url, AppState appState) async {
+    await Future.delayed(const Duration(seconds: 30));
+    
+    if (!mounted) return;
+    
+    // 检查是否还在加载中
+    if (_loadingProgress < 1.0 && _loadingProgress > 0) {
+      debugPrint('⚠️ 加载超时30秒，尝试使用缓存');
+      _tryLoadFromCache(appState);
+    }
+  }
+
+  // 监测网络错误（快速失败场景）
+  void _startNetworkErrorMonitor(String url, AppState appState) async {
+    // 等5秒，检查是否有进度
+    await Future.delayed(const Duration(seconds: 5));
+    
+    if (!mounted) return;
+    
+    // 如果5秒后进度还是0，说明可能网络断开或无法连接
+    if (_loadingProgress == 0 || _loadingProgress == 0.5) {
+      debugPrint('❌ 检测到网络可能无法连接，立即使用缓存');
+      appState.setError('🚫 网络连接失败');
+      _tryLoadFromCache(appState);
+    }
+  }
+
+  // 尝试使用缓存数据
+  void _tryLoadFromCache(AppState appState) async {
+    try {
+      // 获取当前URL的缓存
+      final cacheData = await appState.getCacheForUrl(_currentLoadedUrl);
+      
+      if (cacheData != null && cacheData.isLoadSuccess && cacheData.lastSuccessTime != null) {
+        final cacheAge = DateTime.now().difference(cacheData.lastSuccessTime!).inMinutes;
+        
+        // 显示弹窗提示（不管是刷新还是普通加载）
+        if (mounted) {
+          _showCacheUsageDialog(appState, cacheData, cacheAge);
+        }
+      } else {
+        // 无可用缓存，显示错误弹窗
+        if (mounted) {
+          _showNoCacheDialog();
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ 加载缓存失败: $e');
+    }
+  }
+
+  // 显示缓存使用对话框（统一处理所有网络异常）
+  void _showCacheUsageDialog(AppState appState, CacheData cacheData, int cacheAge) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              _isRefreshing ? Icons.refresh_outlined : Icons.cloud_off_outlined,
+              color: Colors.orange,
+              size: 28,
+            ),
+            const SizedBox(width: 12),
+            Text(_isRefreshing ? '刷新失败' : '网络连接失败'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _isRefreshing ? '无法刷新页面' : '无法连接到网络',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.cached, color: Colors.blue.shade700, size: 18),
+                      const SizedBox(width: 6),
+                      Text(
+                        '可用缓存数据',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'URL: ${cacheData.url}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      const Icon(Icons.access_time, size: 14, color: Colors.grey),
+                      const SizedBox(width: 4),
+                      Text(
+                        '缓存时间: $cacheAge分钟前',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '💾 将使用缓存数据继续浏览',
+              style: TextStyle(fontSize: 14, color: Colors.black87),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // 不使用缓存，保持当前状态
+            },
+            child: const Text('取消'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              // 使用缓存数据
+              appState.setError(null);
+              debugPrint('💾 用户选择使用缓存数据 [$_currentLoadedUrl]');
+            },
+            icon: const Icon(Icons.cached, size: 18),
+            label: const Text('使用缓存'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+            ),
+          ),
+          if (_isRefreshing)
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                // 重试刷新
+                appState.setError(null);
+                _refresh();
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('重试'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+              ),
+            ),
+          if (!_isRefreshing)
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                // 重试加载
+                appState.setError(null);
+                _loadUrl(appState);
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('重试'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _refresh() async {
     if (_isWebViewInitialized) {
-      _webViewController.reload();
+      setState(() {
+        _isRefreshing = true; // 标记为刷新操作
+      });
+      _loadStartTime = DateTime.now(); // 记录刷新开始时间
+      
+      final appState = context.read<AppState>();
+      
+      // 直接执行刷新，不提前询问
+      _executeRefresh(appState);
+    }
+  }
+
+  // 执行实际的刷新操作
+  void _executeRefresh(AppState appState) {
+    // 启动网络错误监测（5秒内）
+    _startNetworkErrorMonitor(_currentLoadedUrl, appState);
+    _webViewController.reload();
+  }
+
+  // 显示缓存信息
+  void _showCacheInfo() async {
+    final appState = context.read<AppState>();
+    final allCacheInfo = await appState.getAllCacheInfo();
+    
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.storage, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('缓存信息'),
+            ],
+          ),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: SelectableText(
+                allCacheInfo,
+                style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('关闭'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await appState.clearAllCache();
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✅ 所有缓存已清除'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
+              },
+              child: const Text('清除全部'),
+            ),
+          ],
+        ),
+      );
     }
   }
 
@@ -179,6 +440,75 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
     if (_isWebViewInitialized) {
       _webViewController.executeScript('window.print()');
     }
+  }
+
+  // 显示无缓存对话框
+  void _showNoCacheDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.error_outline, color: Colors.red, size: 28),
+            SizedBox(width: 12),
+            Text('网络不可用'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.cloud_off, color: Colors.red, size: 20),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '无法连接到网络',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, color: Colors.red.shade700, size: 18),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      '该URL暂无缓存数据',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              '请检查网络连接后重试',
+              style: TextStyle(fontSize: 14, color: Colors.black87),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
   }
 
  // 截长图功能 - 使用打印到PDF的方式
@@ -419,7 +749,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.1),
+                color: Colors.black.withValues(alpha: 0.1),
                 blurRadius: 4,
                 offset: const Offset(0, 2),
               ),
@@ -454,7 +784,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
                       style: const TextStyle(color: Colors.white, fontSize: 13),
                       decoration: InputDecoration(
                         hintText: '输入HTTPS网址...',
-                        hintStyle: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 13),
+                        hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13),
                         prefixIcon: const Icon(Icons.language, size: 16, color: Colors.white70),
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
@@ -506,6 +836,12 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
               ),
               const SizedBox(width: 4),
               _buildIconButton(
+                icon: Icons.storage,
+                tooltip: '缓存信息',
+                onPressed: _showCacheInfo,
+              ),
+              const SizedBox(width: 4),
+              _buildIconButton(
                 icon: Icons.picture_as_pdf,
                 tooltip: '另存为PDF（长图）',
                 onPressed: _captureFullPage,
@@ -552,6 +888,28 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
   Widget _buildWebView() {
     return Consumer<AppState>(
       builder: (context, appState, _) {
+        // 显示缓存加载状态
+        if (appState.isLoadingFromCache) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                const Text(
+                  '正在加载缓存数据...',
+                  style: TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '如果超过30秒未响应，将使用缓存数据',
+                  style: TextStyle(color: Colors.grey.withValues(alpha: 0.6), fontSize: 12),
+                ),
+              ],
+            ),
+          );
+        }
+
         if (!appState.isValidUrl) {
           return Center(
             child: Column(
