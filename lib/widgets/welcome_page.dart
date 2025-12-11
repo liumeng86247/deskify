@@ -1,15 +1,66 @@
 import 'package:flutter/material.dart';
 
 /// 欢迎页 - 当没有URL时显示
-class WelcomePage extends StatelessWidget {
+class WelcomePage extends StatefulWidget {
   final String? cachedUrl; // 缓存的网址
-  final VoidCallback? onLoadCached; // 加载缓存网址的回调
+  final Function(String)? onLoadUrl; // 加载网址的回调
   
   const WelcomePage({
     super.key,
     this.cachedUrl,
-    this.onLoadCached,
+    this.onLoadUrl,
   });
+
+  @override
+  State<WelcomePage> createState() => _WelcomePageState();
+}
+
+class _WelcomePageState extends State<WelcomePage> {
+  late TextEditingController _urlController;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _urlController = TextEditingController(text: widget.cachedUrl ?? '');
+  }
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+    super.dispose();
+  }
+
+  /// 判断URL是否被修改
+  bool get _isUrlModified {
+    final currentUrl = _urlController.text.trim();
+    final cachedUrl = widget.cachedUrl?.trim() ?? '';
+    return currentUrl != cachedUrl && currentUrl.isNotEmpty;
+  }
+
+  void _handleLoadUrl() {
+    final url = _urlController.text.trim();
+    
+    if (url.isEmpty) {
+      setState(() {
+        _errorMessage = '请输入网址';
+      });
+      return;
+    }
+    
+    if (!url.startsWith('https://')) {
+      setState(() {
+        _errorMessage = '⚠️ 仅支持 HTTPS 网站';
+      });
+      return;
+    }
+    
+    setState(() {
+      _errorMessage = null;
+    });
+    
+    widget.onLoadUrl?.call(url);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -85,17 +136,21 @@ class WelcomePage extends StatelessWidget {
               
               SizedBox(height: isSmallScreen ? 16 : 32),
               
-              // 显示缓存的网址
-              if (cachedUrl != null && cachedUrl!.isNotEmpty)
-                Container(
+              // 地址栏输入区域（可编辑的上次访问网址）
+              if (widget.cachedUrl != null && widget.cachedUrl!.isNotEmpty)
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: isSmallScreen ? double.infinity : 700,
+                  ),
+                  child: Container(
                   margin: EdgeInsets.only(bottom: isSmallScreen ? 14 : 24),
                   padding: EdgeInsets.symmetric(
-                    horizontal: isSmallScreen ? 10 : 16,
-                    vertical: isSmallScreen ? 8 : 12,
+                    horizontal: isSmallScreen ? 12 : 20,
+                    vertical: isSmallScreen ? 12 : 16,
                   ),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.blue.shade200, width: 2),
                     boxShadow: [
                       BoxShadow(
@@ -105,128 +160,184 @@ class WelcomePage extends StatelessWidget {
                       ),
                     ],
                   ),
-                  child: isSmallScreen
-                      ? Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(6),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.shade50,
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: const Icon(
-                                    Icons.history,
-                                    color: Colors.blue,
-                                    size: 18,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                const Expanded(
-                                  child: Text(
-                                    '上次访问的网址',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // 单行布局：标题 + 地址栏 + 按钮
+                      Row(
+                        children: [
+                          // 标题图标
+                          Icon(
+                            Icons.history,
+                            color: Colors.blue,
+                            size: isSmallScreen ? 18 : 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '上次访问',
+                            style: TextStyle(
+                              fontSize: isSmallScreen ? 13 : 14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
                             ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                const Icon(Icons.link, size: 14, color: Colors.grey),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    cachedUrl!,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade700,
-                                      fontFamily: 'monospace',
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
+                          ),
+                          const SizedBox(width: 12),
+                          
+                          // 地址栏（占据剩余空间）
+                          Expanded(
+                            child: TextField(
+                              controller: _urlController,
+                              decoration: InputDecoration(
+                                hintText: '输入 HTTPS 网址',
+                                hintStyle: TextStyle(
+                                  fontSize: isSmallScreen ? 11 : 13,
+                                  color: Colors.grey.shade400,
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            ElevatedButton.icon(
-                              onPressed: onLoadCached,
-                              icon: const Icon(Icons.open_in_browser, size: 16),
-                              label: const Text('继续访问'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blue,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 8,
+                                prefixIcon: Icon(Icons.link, color: Colors.blue, size: isSmallScreen ? 16 : 18),
+                                suffixIcon: IconButton(
+                                  icon: const Icon(Icons.clear, size: 16),
+                                  onPressed: () {
+                                    _urlController.clear();
+                                    setState(() {
+                                      _errorMessage = null;
+                                    });
+                                  },
+                                  tooltip: '清空',
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
                                 ),
-                                shape: RoundedRectangleBorder(
+                                filled: true,
+                                fillColor: Colors.grey.shade50,
+                                border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(color: Colors.grey.shade300),
                                 ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(color: Colors.grey.shade300),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(color: Colors.blue, width: 1.5),
+                                ),
+                                errorBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(color: Colors.red, width: 1.5),
+                                ),
+                                focusedErrorBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(color: Colors.red, width: 1.5),
+                                ),
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: isSmallScreen ? 8 : 10,
+                                ),
+                                isDense: true,
+                              ),
+                              style: TextStyle(
+                                fontSize: isSmallScreen ? 12 : 13,
+                                fontFamily: 'monospace',
+                              ),
+                              onSubmitted: (_) => _handleLoadUrl(),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                          ),
+                          
+                          const SizedBox(width: 12),
+                          
+                          // 按钮
+                          ElevatedButton.icon(
+                            onPressed: _handleLoadUrl,
+                            icon: Icon(
+                              _isUrlModified ? Icons.open_in_new : Icons.refresh,
+                              size: isSmallScreen ? 14 : 16,
+                            ),
+                            label: Text(
+                              _isUrlModified ? '访问' : '继续',
+                              style: TextStyle(
+                                fontSize: isSmallScreen ? 12 : 13,
                               ),
                             ),
-                          ],
-                        )
-                      : Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isSmallScreen ? 12 : 16,
+                                vertical: isSmallScreen ? 10 : 12,
+                              ),
+                              shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              child: const Icon(
-                                Icons.history,
-                                color: Colors.blue,
-                                size: 24,
-                              ),
+                              elevation: 1,
                             ),
-                            const SizedBox(width: 12),
-                            const Text(
-                              '上次访问的网址',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
+                          ),
+                        ],
+                      ),
+                      
+                      // 错误提示
+                      if (_errorMessage != null) ...[
+                        const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 28),
+                          child: Text(
+                            _errorMessage!,
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontSize: 11,
                             ),
-                            const SizedBox(width: 16),
-                            const Icon(Icons.link, size: 16, color: Colors.grey),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                cachedUrl!,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey.shade700,
-                                  fontFamily: 'monospace',
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            ElevatedButton.icon(
-                              onPressed: onLoadCached,
-                              icon: const Icon(Icons.open_in_browser, size: 18),
-                              label: const Text('继续访问'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blue,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                  vertical: 12,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
+                      ],
+                    ],
+                  ),
+                ),
+              )
+              else
+                // 没有缓存网址时显示简单输入框
+                Container(
+                  constraints: BoxConstraints(
+                    maxWidth: isSmallScreen ? double.infinity : 600,
+                  ),
+                  margin: EdgeInsets.only(bottom: isSmallScreen ? 14 : 24),
+                  padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 10,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.web,
+                        size: isSmallScreen ? 32 : 40,
+                        color: Colors.blue,
+                      ),
+                      SizedBox(height: isSmallScreen ? 12 : 16),
+                      Text(
+                        '输入 HTTPS 网址开始使用',
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 15 : 17,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      SizedBox(height: isSmallScreen ? 8 : 12),
+                      Text(
+                        '请在顶部标题栏的地址栏中输入网址',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 12 : 14,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               
               // 功能介绍卡片

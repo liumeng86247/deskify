@@ -4,17 +4,21 @@ import 'package:window_manager/window_manager.dart';
 class CustomTitleBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onRefresh;
   final VoidCallback? onHome;
+  final VoidCallback? onDownload;  // 下载器入口
   final String pageTitle;
   final String? favIconUrl;
   final bool hasUrl;  // 是否有网址
+  final int downloadCount;  // 下载任务数
   
   const CustomTitleBar({
     super.key,
     this.onRefresh,
     this.onHome,
+    this.onDownload,
     this.pageTitle = 'Deskify',
     this.favIconUrl,
     this.hasUrl = false,
+    this.downloadCount = 0,
   });
 
   @override
@@ -80,6 +84,15 @@ class CustomTitleBar extends StatelessWidget implements PreferredSizeWidget {
               onPressed: onRefresh!,
             ),
           
+          // 下载器入口
+          if (onDownload != null)
+            _ToolButton(
+              icon: Icons.download_outlined,
+              tooltip: downloadCount > 0 ? '下载 ($downloadCount)' : '下载',
+              onPressed: onDownload!,
+              badge: downloadCount > 0 ? downloadCount : null,
+            ),
+          
           // 窗口控制按钮
           _WindowButton(
             icon: Icons.minimize,
@@ -116,11 +129,13 @@ class _ToolButton extends StatefulWidget {
   final IconData icon;
   final String tooltip;
   final VoidCallback onPressed;
+  final int? badge;  // 徽章数字
 
   const _ToolButton({
     required this.icon,
     required this.tooltip,
     required this.onPressed,
+    this.badge,
   });
 
   @override
@@ -143,10 +158,41 @@ class _ToolButtonState extends State<_ToolButton> {
             width: 44,
             height: 48,
             color: _isHovered ? const Color(0x1AFFFFFF) : Colors.transparent,
-            child: Icon(
-              widget.icon,
-              color: Colors.white,
-              size: 18,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Icon(
+                  widget.icon,
+                  color: Colors.white,
+                  size: 18,
+                ),
+                // 徽章
+                if (widget.badge != null)
+                  Positioned(
+                    right: 8,
+                    top: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
+                      child: Text(
+                        widget.badge! > 99 ? '99+' : widget.badge.toString(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ),

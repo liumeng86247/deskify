@@ -3,11 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:webview_windows/webview_windows.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/app_state.dart';
+import '../services/download_service.dart';
 import '../widgets/custom_titlebar.dart';
 import '../widgets/welcome_page.dart';
 import '../widgets/not_found_page.dart';
 import '../widgets/error_page.dart';
+import '../widgets/download_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,9 +22,11 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with WindowListener {
   final TextEditingController _urlController = TextEditingController();
   final WebviewController _webViewController = WebviewController();
+  final DownloadService _downloadService = DownloadService();
   bool _isWebViewInitialized = false;
   double _loadingProgress = 0;
   String _currentLoadedUrl = '';
+  Uri? _rootUri; // 当前站点的根域名（用于同域/异域判断）
   Size? _windowSize;
   String? _loadError;
   bool _showNotFound = false;
@@ -30,6 +35,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
   void initState() {
     super.initState();
     windowManager.addListener(this);
+    _downloadService.addListener(_onDownloadServiceChanged);
     _initWebView();
     
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -37,6 +43,12 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
       _urlController.text = appState.currentUrl;
       _updateWindowSize();
     });
+  }
+
+  void _onDownloadServiceChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   @override
@@ -86,6 +98,8 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
 
   Future<void> _initWebView() async {
     await _webViewController.initialize();
+    // 设置popup策略为sameWindow，方便统一拦截
+    await _webViewController.setPopupWindowPolicy(WebviewPopupWindowPolicy.sameWindow);
     setState(() => _isWebViewInitialized = true);
     
     _webViewController.loadingState.listen((state) {
@@ -107,6 +121,48 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
         context.read<AppState>().updatePageTitle(title);
       }
     });
+
+    // 监听URL变化：处理跳转和下载
+    _webViewController.url.listen((url) async {
+      if (!mounted || url.isEmpty) return;
+
+      final newUri = Uri.tryParse(url);
+      if (newUri == null) return;
+
+      // 只关心 http/https
+      if (newUri.scheme != 'http' && newUri.scheme != 'https') {
+        return;
+      }
+
+      // 如果还没有根域名（第一次成功导航），以当前URL为根
+      _rootUri ??= newUri;
+
+      // 判断是否是下载URL
+      if (_isDownloadUrl(newUri)) {
+        debugPrint('📥 检测到下载: $url');
+        await _handleDownload(newUri);
+        return;
+      }
+
+      // 同域：正常在WebView内导航
+      if (_rootUri != null && newUri.host == _rootUri!.host) {
+        _currentLoadedUrl = url;
+        await context.read<AppState>().saveUrl(url);
+        debugPrint('🔗 站内导航: $url');
+        return;
+      }
+
+      // 异域：交给系统浏览器
+      debugPrint('🌐 异域链接，使用系统浏览器: $url');
+      await _openInExternalBrowser(url);
+
+      // 把WebView拉回当前站点
+      if (_currentLoadedUrl.isNotEmpty &&
+          _currentLoadedUrl != url &&
+          _isWebViewInitialized) {
+        await _webViewController.loadUrl(_currentLoadedUrl);
+      }
+    });
     
     _adjustWebViewZoom();
     
@@ -117,6 +173,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
         if (appState.currentUrl.isNotEmpty) {
           debugPrint('🚀 自动加载网址: ${appState.currentUrl}');
           _currentLoadedUrl = appState.currentUrl;
+          _rootUri = Uri.tryParse(_currentLoadedUrl);
           await _webViewController.loadUrl(appState.currentUrl);
         }
       }
@@ -165,9 +222,116 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
   @override
   void dispose() {
     windowManager.removeListener(this);
+    _downloadService.removeListener(_onDownloadServiceChanged);
     _urlController.dispose();
     _webViewController.dispose();
+    _downloadService.dispose();
     super.dispose();
+  }
+
+  /// 判断URL是否为下载链接
+  bool _isDownloadUrl(Uri uri) {
+    final ext = uri.path.split('.').last.toLowerCase();
+    const downloadExts = [
+      'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+      'zip', 'rar', '7z', 'tar', 'gz',
+      'csv', 'txt', 'json', 'xml',
+      'jpg', 'jpeg', 'png', 'gif', 'svg', 'bmp',
+      'mp3', 'mp4', 'avi', 'mkv', 'mov',
+      'apk', 'dmg', 'deb', 'rpm',
+    ];
+    return downloadExts.contains(ext);
+  }
+
+  /// 处理下载
+  Future<void> _handleDownload(Uri uri) async {
+    try {
+      final fileName = DownloadService.getFileNameFromUrl(uri);
+      
+      // 可执行文件需要二次确认
+      if (DownloadService.isExecutableFile(fileName)) {
+        if (!mounted) return;
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('安全提示'),
+            content: Text('即将下载可执行文件：$fileName\n\n请确认文件来源可信。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('继续下载'),
+              ),
+            ],
+          ),
+        );
+        
+        if (confirmed != true) return;
+      }
+
+      // 添加到下载队列
+      await _downloadService.enqueue(uri);
+      
+      // 显示提示
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已添加到下载队列：$fileName'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+
+      // 把WebView拉回上一个页面
+      if (_currentLoadedUrl.isNotEmpty && _isWebViewInitialized) {
+        await _webViewController.loadUrl(_currentLoadedUrl);
+      }
+    } catch (e) {
+      debugPrint('❌ 处理下载失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('下载失败: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// 用系统浏览器打开链接
+  Future<void> _openInExternalBrowser(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      debugPrint('⚠️ 无法解析为URI: $url');
+      return;
+    }
+
+    try {
+      final ok = await canLaunchUrl(uri);
+      if (!ok) {
+        debugPrint('⚠️ 无法在系统浏览器中打开: $url');
+        return;
+      }
+      await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('已在系统浏览器中打开'),
+            duration: Duration(seconds: 1),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('⚠️ 打开系统浏览器失败: $e');
+    }
   }
 
   void _loadUrl(AppState appState) async {
@@ -187,6 +351,9 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
         _loadError = null;
         _showNotFound = false;
       });
+
+      // 更新当前根域名为用户输入的网站
+      _rootUri = Uri.tryParse(url);
       
       await appState.saveUrl(url);
       
@@ -244,6 +411,16 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
     });
   }
 
+  /// 打开下载管理器
+  void _openDownloadManager() {
+    showDialog(
+      context: context,
+      builder: (context) => DownloadDialog(
+        downloadService: _downloadService,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<AppState>(
@@ -252,9 +429,14 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
           appBar: CustomTitleBar(
             onRefresh: _currentLoadedUrl.isNotEmpty ? _refresh : null,
             onHome: _currentLoadedUrl.isNotEmpty ? _goHome : null,
+            onDownload: _openDownloadManager,
             pageTitle: appState.pageTitle,
             favIconUrl: appState.favIconUrl,
             hasUrl: _currentLoadedUrl.isNotEmpty,
+            downloadCount: _downloadService.tasks.where((t) => 
+              t.status == DownloadStatus.running || 
+              t.status == DownloadStatus.pending
+            ).length,
           ),
           body: Column(
             children: [
@@ -303,10 +485,9 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
     if (appState.shouldShowWelcome) {
       return WelcomePage(
         cachedUrl: appState.currentUrl,
-        onLoadCached: () {
-          if (appState.currentUrl.isNotEmpty) {
-            _loadUrl(appState);
-          }
+        onLoadUrl: (url) {
+          _urlController.text = url;
+          _loadUrl(appState);
         },
       );
     }
