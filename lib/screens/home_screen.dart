@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:webview_windows/webview_windows.dart';
 import 'package:window_manager/window_manager.dart';
-import 'package:file_picker/file_picker.dart';
 import '../models/app_state.dart';
 import '../widgets/custom_titlebar.dart';
 import '../widgets/welcome_page.dart';
@@ -23,7 +23,6 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
   double _loadingProgress = 0;
   String _currentLoadedUrl = '';
   Size? _windowSize;
-  bool _isToolbarVisible = true;   // 默认显示工具栏
   String? _loadError;
   bool _showNotFound = false;
 
@@ -135,6 +134,26 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
       });
     }
     
+    // 主动获取网页标题
+    if (_isWebViewInitialized && mounted) {
+      try {
+        final titleResult = await _webViewController.executeScript(
+          'document.title',
+        );
+        if (titleResult != null && titleResult.toString().isNotEmpty) {
+          String title = titleResult.toString();
+          // 移除外层引号
+          if (title.startsWith('"') && title.endsWith('"')) {
+            title = title.substring(1, title.length - 1);
+          }
+          debugPrint('📝 加载完成，获取标题: $title');
+          context.read<AppState>().updatePageTitle(title);
+        }
+      } catch (e) {
+        debugPrint('⚠️ 获取标题失败: $e');
+      }
+    }
+    
     // 生成favicon URL
     if (_currentLoadedUrl.isNotEmpty && mounted) {
       final uri = Uri.parse(_currentLoadedUrl);
@@ -162,6 +181,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
     try {
       appState.setLoading(true);
       appState.setError(null);
+      appState.hideWelcome(); // 开始加载时隐藏欢迎页
       
       setState(() {
         _loadError = null;
@@ -215,114 +235,13 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
 
   void _goHome() {
     final appState = context.read<AppState>();
-    // 不清除网址，只重置页面信息和状态
-    appState.resetPageInfo();
+    // 保留URL，但显示欢迎页
+    appState.showWelcome();
     setState(() {
       _currentLoadedUrl = '';
       _loadError = null;
       _showNotFound = false;
     });
-  }
-
-  // 截图功能
-  Future<void> _takeScreenshot() async {
-    try {
-      // 选择保存位置
-      final result = await FilePicker.platform.saveFile(
-        dialogTitle: '保存截图',
-        fileName: 'screenshot_${DateTime.now().millisecondsSinceEpoch}.png',
-        type: FileType.image,
-      );
-
-      if (result != null) {
-        // 注意：webview_windows 不支持直接截图，需要使用其他方法
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('截图功能暂未实现，webview_windows 不支持直接截图'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('截图失败: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('截图失败: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  // 打印功能
-  Future<void> _printPage() async {
-    try {
-      // webview_windows 支持打印
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('打印功能暂未实现'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('打印失败: $e');
-    }
-  }
-
-  // 导出PDF
-  Future<void> _exportPdf() async {
-    try {
-      final result = await FilePicker.platform.saveFile(
-        dialogTitle: '导出PDF',
-        fileName: 'export_${DateTime.now().millisecondsSinceEpoch}.pdf',
-        type: FileType.custom,
-        allowedExtensions: ['pdf'],
-      );
-
-      if (result != null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('PDF导出功能暂未实现'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('导出PDF失败: $e');
-    }
-  }
-
-  // 导出Markdown
-  Future<void> _exportMarkdown() async {
-    try {
-      final result = await FilePicker.platform.saveFile(
-        dialogTitle: '导出Markdown',
-        fileName: 'export_${DateTime.now().millisecondsSinceEpoch}.md',
-        type: FileType.custom,
-        allowedExtensions: ['md'],
-      );
-
-      if (result != null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Markdown导出功能暂未实现'),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('导出Markdown失败: $e');
-    }
   }
 
   @override
@@ -333,58 +252,12 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
           appBar: CustomTitleBar(
             onRefresh: _currentLoadedUrl.isNotEmpty ? _refresh : null,
             onHome: _currentLoadedUrl.isNotEmpty ? _goHome : null,
-            onToggleUrlBar: () {
-              setState(() {
-                _isToolbarVisible = !_isToolbarVisible;
-              });
-            },
-            isUrlBarVisible: _isToolbarVisible,  // 使用 isToolbarVisible 控制工具栏
             pageTitle: appState.pageTitle,
             favIconUrl: appState.favIconUrl,
             hasUrl: _currentLoadedUrl.isNotEmpty,
           ),
           body: Column(
             children: [
-              // 工具栏（独立控制）
-              if (_isToolbarVisible && _currentLoadedUrl.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    border: Border(
-                      bottom: BorderSide(color: Colors.grey.shade300),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      _buildToolButton(
-                        icon: Icons.print_outlined,
-                        label: '打印',
-                        onPressed: _printPage,
-                        color: Colors.green,
-                      ),
-                      _buildToolButton(
-                        icon: Icons.screenshot_outlined,
-                        label: '截图',
-                        onPressed: _takeScreenshot,
-                        color: Colors.orange,
-                      ),
-                      _buildToolButton(
-                        icon: Icons.picture_as_pdf_outlined,
-                        label: 'PDF',
-                        onPressed: _exportPdf,
-                        color: Colors.red,
-                      ),
-                      _buildToolButton(
-                        icon: Icons.article_outlined,
-                        label: 'MD',
-                        onPressed: _exportMarkdown,
-                        color: Colors.purple,
-                      ),
-                    ],
-                  ),
-                ),
-              
               // 错误提示
               if (appState.errorMessage != null)
                 Container(
@@ -465,32 +338,6 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
     // 初始化中
     return const Center(
       child: CircularProgressIndicator(),
-    );
-  }
-  
-  // 工具按钮组件
-  Widget _buildToolButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback? onPressed,
-    required Color color,
-  }) {
-    final isEnabled = onPressed != null;
-    
-    return Tooltip(
-      message: label,
-      child: TextButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon, size: 18),
-        label: Text(label),
-        style: TextButton.styleFrom(
-          foregroundColor: isEnabled ? color : Colors.grey,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 8,
-          ),
-        ),
-      ),
     );
   }
 }

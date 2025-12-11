@@ -13,6 +13,10 @@ class WelcomePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 获取屏幕宽度
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 900; // 小屏幕阈值
+    
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -26,108 +30,171 @@ class WelcomePage extends StatelessWidget {
       ),
       child: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(40),
+          padding: EdgeInsets.symmetric(
+            horizontal: isSmallScreen ? 16 : 40,
+            vertical: isSmallScreen ? 12 : 30,
+          ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               // Logo/Icon
               Container(
-                padding: const EdgeInsets.all(24),
+                padding: EdgeInsets.all(isSmallScreen ? 12 : 20),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
                       color: Colors.blue.withOpacity(0.2),
-                      blurRadius: 20,
-                      spreadRadius: 5,
+                      blurRadius: 15,
+                      spreadRadius: 3,
                     ),
                   ],
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.desktop_windows_rounded,
-                  size: 80,
+                  size: isSmallScreen ? 40 : 56,
                   color: Colors.blue,
                 ),
               ),
               
-              const SizedBox(height: 40),
+              SizedBox(height: isSmallScreen ? 16 : 28),
               
               // 标题
-              const Text(
+              Text(
                 '欢迎使用 Deskify',
                 style: TextStyle(
-                  fontSize: 42,
+                  fontSize: isSmallScreen ? 24 : 32,
                   fontWeight: FontWeight.bold,
                   color: Colors.black87,
                 ),
+                textAlign: TextAlign.center,
               ),
               
-              const SizedBox(height: 16),
+              SizedBox(height: isSmallScreen ? 6 : 10),
               
               // 副标题
               Text(
                 '将任意网站封装为桌面应用',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: isSmallScreen ? 13 : 15,
                   color: Colors.grey.shade700,
                 ),
+                textAlign: TextAlign.center,
               ),
               
-              const SizedBox(height: 60),
+              SizedBox(height: isSmallScreen ? 16 : 32),
               
               // 显示缓存的网址
               if (cachedUrl != null && cachedUrl!.isNotEmpty)
                 Container(
-                  margin: const EdgeInsets.only(bottom: 40),
-                  padding: const EdgeInsets.all(24),
+                  margin: EdgeInsets.only(bottom: isSmallScreen ? 14 : 24),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isSmallScreen ? 10 : 16,
+                    vertical: isSmallScreen ? 8 : 12,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: Colors.blue.shade200, width: 2),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.blue.withValues(alpha: 0.1),
-                        blurRadius: 20,
-                        spreadRadius: 5,
+                        blurRadius: 15,
+                        spreadRadius: 3,
                       ),
                     ],
                   ),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Icon(
-                              Icons.history,
-                              color: Colors.blue,
-                              size: 24,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          const Text(
-                            '上次访问的网址',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
+                  child: isSmallScreen
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(6),
+                                  decoration: BoxDecoration(
+                                    color: Colors.blue.shade50,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Icon(
+                                    Icons.history,
+                                    color: Colors.blue,
+                                    size: 18,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Expanded(
+                                  child: Text(
+                                    '上次访问的网址',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Icon(Icons.link, size: 14, color: Colors.grey),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    cachedUrl!,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade700,
+                                      fontFamily: 'monospace',
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            ElevatedButton.icon(
+                              onPressed: onLoadCached,
+                              icon: const Icon(Icons.open_in_browser, size: 16),
+                              label: const Text('继续访问'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 8,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(
+                                Icons.history,
+                                color: Colors.blue,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Text(
+                              '上次访问的网址',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(width: 16),
                             const Icon(Icons.link, size: 16, color: Colors.grey),
                             const SizedBox(width: 8),
                             Expanded(
@@ -141,41 +208,35 @@ class WelcomePage extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
+                            const SizedBox(width: 16),
+                            ElevatedButton.icon(
+                              onPressed: onLoadCached,
+                              icon: const Icon(Icons.open_in_browser, size: 18),
+                              label: const Text('继续访问'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 12,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: onLoadCached,
-                          icon: const Icon(Icons.open_in_browser),
-                          label: const Text('继续访问'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 16,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
               
               // 功能介绍卡片
-              _buildFeatureCards(),
+              _buildFeatureCards(isSmallScreen),
               
-              const SizedBox(height: 60),
+              SizedBox(height: isSmallScreen ? 16 : 32),
               
               // 使用提示
               Container(
-                padding: const EdgeInsets.all(24),
+                padding: EdgeInsets.all(isSmallScreen ? 12 : 18),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
@@ -189,25 +250,25 @@ class WelcomePage extends StatelessWidget {
                 ),
                 child: Column(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.lightbulb_outline,
                       color: Colors.orange,
-                      size: 32,
+                      size: isSmallScreen ? 20 : 26,
                     ),
-                    const SizedBox(height: 12),
-                    const Text(
+                    SizedBox(height: isSmallScreen ? 6 : 8),
+                    Text(
                       '快速开始',
                       style: TextStyle(
-                        fontSize: 20,
+                        fontSize: isSmallScreen ? 15 : 17,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    SizedBox(height: isSmallScreen ? 6 : 8),
                     Text(
                       '在顶部地址栏输入 HTTPS 网址，即可开始使用',
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        fontSize: 14,
+                        fontSize: isSmallScreen ? 12 : 14,
                         color: Colors.grey.shade700,
                       ),
                     ),
@@ -215,15 +276,16 @@ class WelcomePage extends StatelessWidget {
                 ),
               ),
               
-              const SizedBox(height: 40),
+              SizedBox(height: isSmallScreen ? 14 : 24),
               
               // 版权信息
               Text(
                 '© 2025 Deskify - 定制桌面应用解决方案',
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: isSmallScreen ? 10 : 12,
                   color: Colors.grey.shade500,
                 ),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
@@ -232,10 +294,10 @@ class WelcomePage extends StatelessWidget {
     );
   }
   
-  Widget _buildFeatureCards() {
+  Widget _buildFeatureCards(bool isSmallScreen) {
     return Wrap(
-      spacing: 20,
-      runSpacing: 20,
+      spacing: isSmallScreen ? 8 : 14,
+      runSpacing: isSmallScreen ? 8 : 14,
       alignment: WrapAlignment.center,
       children: [
         _buildFeatureCard(
@@ -243,24 +305,28 @@ class WelcomePage extends StatelessWidget {
           title: '跨平台支持',
           description: 'Windows / macOS / Linux',
           color: Colors.blue,
+          isSmallScreen: isSmallScreen,
         ),
         _buildFeatureCard(
           icon: Icons.security,
           title: 'HTTPS 安全',
           description: '仅支持安全的HTTPS网站',
           color: Colors.green,
+          isSmallScreen: isSmallScreen,
         ),
         _buildFeatureCard(
           icon: Icons.memory,
           title: '记忆功能',
           description: '自动记住上次访问的网址',
           color: Colors.purple,
+          isSmallScreen: isSmallScreen,
         ),
         _buildFeatureCard(
           icon: Icons.settings_overscan,
           title: '自适应缩放',
           description: '窗口大小自动适配',
           color: Colors.orange,
+          isSmallScreen: isSmallScreen,
         ),
       ],
     );
@@ -271,38 +337,40 @@ class WelcomePage extends StatelessWidget {
     required String title,
     required String description,
     required Color color,
+    required bool isSmallScreen,
   }) {
     return Container(
-      width: 200,
-      padding: const EdgeInsets.all(20),
+      width: isSmallScreen ? 150 : 170,
+      padding: EdgeInsets.all(isSmallScreen ? 10 : 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(8),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            spreadRadius: 2,
+            blurRadius: 6,
+            spreadRadius: 1,
           ),
         ],
       ),
       child: Column(
         children: [
-          Icon(icon, size: 40, color: color),
-          const SizedBox(height: 12),
+          Icon(icon, size: isSmallScreen ? 24 : 32, color: color),
+          SizedBox(height: isSmallScreen ? 6 : 8),
           Text(
             title,
-            style: const TextStyle(
-              fontSize: 16,
+            style: TextStyle(
+              fontSize: isSmallScreen ? 12 : 14,
               fontWeight: FontWeight.bold,
             ),
+            textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: isSmallScreen ? 4 : 6),
           Text(
             description,
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: isSmallScreen ? 10 : 11,
               color: Colors.grey.shade600,
             ),
           ),

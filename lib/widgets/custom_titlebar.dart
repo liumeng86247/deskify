@@ -4,8 +4,6 @@ import 'package:window_manager/window_manager.dart';
 class CustomTitleBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onRefresh;
   final VoidCallback? onHome;
-  final VoidCallback? onToggleUrlBar;
-  final bool isUrlBarVisible;
   final String pageTitle;
   final String? favIconUrl;
   final bool hasUrl;  // 是否有网址
@@ -14,8 +12,6 @@ class CustomTitleBar extends StatelessWidget implements PreferredSizeWidget {
     super.key,
     this.onRefresh,
     this.onHome,
-    this.onToggleUrlBar,
-    this.isUrlBarVisible = true,
     this.pageTitle = 'Deskify',
     this.favIconUrl,
     this.hasUrl = false,
@@ -82,19 +78,6 @@ class CustomTitleBar extends StatelessWidget implements PreferredSizeWidget {
               icon: Icons.refresh,
               tooltip: '刷新',
               onPressed: onRefresh!,
-            ),
-          // 显示锁图标或展开/收起按钮
-          if (hasUrl && !isUrlBarVisible && onToggleUrlBar != null)
-            _ToolButton(
-              icon: Icons.expand_more,
-              tooltip: '展开',
-              onPressed: onToggleUrlBar!,
-            )
-          else if (onToggleUrlBar != null)
-            _ToolButton(
-              icon: isUrlBarVisible ? Icons.expand_less : Icons.expand_more,
-              tooltip: isUrlBarVisible ? '隐藏工具栏' : '显示工具栏',
-              onPressed: onToggleUrlBar!,
             ),
           
           // 窗口控制按钮

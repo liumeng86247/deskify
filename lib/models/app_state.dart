@@ -7,6 +7,7 @@ class AppState extends ChangeNotifier {
   String? _errorMessage;
   String _pageTitle = 'Deskify'; // 页面标题
   String? _favIconUrl; // 网站图标URL
+  bool _showWelcomePage = false; // 是否显示欢迎页
 
   String get currentUrl => _currentUrl;
   bool get isLoading => _isLoading;
@@ -21,7 +22,7 @@ class AppState extends ChangeNotifier {
 
   // 是否显示首页
   bool get shouldShowWelcome {
-    return _currentUrl.isEmpty;
+    return _showWelcomePage;
   }
 
   // 更新URL
@@ -50,14 +51,17 @@ class AppState extends ChangeNotifier {
       final savedUrl = prefs.getString('last_url');
       if (savedUrl != null && savedUrl.isNotEmpty) {
         _currentUrl = savedUrl;
+        _showWelcomePage = false; // 有URL时不显示欢迎页
         debugPrint('📥 加载上次访问的URL: $_currentUrl');
       } else {
         _currentUrl = ''; // 空URL显示欢迎页
+        _showWelcomePage = true;
       }
       notifyListeners();
     } catch (e) {
       debugPrint('❌ 加载URL失败: $e');
       _currentUrl = '';
+      _showWelcomePage = true;
       notifyListeners();
     }
   }
@@ -81,12 +85,26 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // 显示欢迎页
+  void showWelcome() {
+    _showWelcomePage = true;
+    resetPageInfo();
+    notifyListeners();
+  }
+
+  // 隐藏欢迎页
+  void hideWelcome() {
+    _showWelcomePage = false;
+    notifyListeners();
+  }
+
   // 保存URL
   Future<void> saveUrl(String url) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('last_url', url);
       _currentUrl = url;
+      _showWelcomePage = false; // 保存URL后隐藏欢迎页
       notifyListeners();
     } catch (e) {
       debugPrint('❌ 保存URL失败: $e');
