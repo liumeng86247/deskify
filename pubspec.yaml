@@ -26,6 +26,21 @@ dependencies:
   
   # URL验证
   url_launcher: ^6.2.0
+  
+  # 截图功能
+  screenshot: ^3.0.0
+  
+  # PDF生成
+  pdf: ^3.11.1
+  
+  # 文件选择器
+  file_picker: ^8.1.6
+  
+  # 路径处理
+  path_provider: ^2.1.5
+  
+  # HTML转Markdown
+  html2md: ^1.3.2
 
 dev_dependencies:
   flutter_test:

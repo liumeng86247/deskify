@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:webview_windows/webview_windows.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:file_picker/file_picker.dart';
 import '../models/app_state.dart';
 import '../widgets/custom_titlebar.dart';
-import '../services/cache_service.dart';
+import '../widgets/welcome_page.dart';
+import '../widgets/not_found_page.dart';
+import '../widgets/error_page.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -20,16 +23,16 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
   double _loadingProgress = 0;
   String _currentLoadedUrl = '';
   Size? _windowSize;
-  bool _isUrlBarVisible = true; // 控制地址栏显示状态
-  DateTime? _loadStartTime; // 记录加载开始时间
-  bool _isRefreshing = false; // 是否正在刷新
+  bool _isToolbarVisible = true;   // 默认显示工具栏
+  String? _loadError;
+  bool _showNotFound = false;
 
   @override
   void initState() {
     super.initState();
     windowManager.addListener(this);
     _initWebView();
-    // 监听URL变化
+    
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final appState = context.read<AppState>();
       _urlController.text = appState.currentUrl;
@@ -37,50 +40,48 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
     });
   }
 
-  // 监听窗口大小变化
   @override
   void onWindowResize() {
     _updateWindowSize();
   }
 
-  // 更新窗口大小和WebView缩放
+  @override
+  void onWindowMaximize() {
+    _updateWindowSize();
+  }
+
+  @override
+  void onWindowUnmaximize() {
+    _updateWindowSize();
+  }
+
   void _updateWindowSize() async {
     final size = await windowManager.getSize();
     if (_windowSize != size && mounted) {
       setState(() {
         _windowSize = size;
       });
-      // 调整WebView缩放以适应窗口
       if (_isWebViewInitialized) {
         _adjustWebViewZoom();
       }
     }
   }
 
-  // 调整WebView缩放比例
   void _adjustWebViewZoom() async {
     if (_windowSize != null && _isWebViewInitialized) {
       final windowWidth = _windowSize!.width;
-      
-      // 根据窗口宽度动态计算缩放比例
-      // 假设大多数网站设计宽度为1200px
       double zoomFactor = 1.0;
       
-      // 当窗口宽度小于1200px时，按比例缩小
-      if (windowWidth < 1200) {
-        // 计算需要的缩放比例
-        zoomFactor = windowWidth / 1200;
-        
-        // 限制最小缩放比例，防止过小难以阅读
-        if (zoomFactor < 0.5) {
-          zoomFactor = 0.5;
+      // 根据窗口宽度调整缩放，确保网页内容完全显示不出现滚动条
+      if (windowWidth < 1400) {
+        zoomFactor = windowWidth / 1400;  // 增加基准宽度
+        if (zoomFactor < 0.6) {
+          zoomFactor = 0.6;  // 设置最小缩放比例
         }
       }
       
-      // 设置缩放因子
       await _webViewController.setZoomFactor(zoomFactor);
-      
-      debugPrint('Deskify: 窗口宽度 ${windowWidth.toInt()}px，缩放比例 ${(zoomFactor * 100).toInt()}%');
+      debugPrint('窗口宽度 ${windowWidth.toInt()}px，缩放比例 ${(zoomFactor * 100).toInt()}%');
     }
   }
 
@@ -88,38 +89,57 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
     await _webViewController.initialize();
     setState(() => _isWebViewInitialized = true);
     
-    // 监听加载进度
     _webViewController.loadingState.listen((state) {
       if (mounted) {
         setState(() {
           _loadingProgress = (state == LoadingState.navigationCompleted) ? 1.0 : 0.5;
         });
         
-        // 加载完成后处理
         if (state == LoadingState.navigationCompleted) {
           _onLoadComplete();
         }
       }
     });
     
-    // 监听WebView错误（网络错误等）
-    _webViewController.url.listen((url) {
-      // URL变化监听，用于检测导航失败
-      debugPrint('🌐 WebView URL changed: $url');
+    // 监听网页标题变化
+    _webViewController.title.listen((title) {
+      if (mounted && title.isNotEmpty) {
+        debugPrint('📝 网页标题: $title');
+        context.read<AppState>().updatePageTitle(title);
+      }
     });
     
-    // 初始化缩放
     _adjustWebViewZoom();
+    
+    // WebView初始化完成后，自动加载缓存的URL
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (mounted) {
+        final appState = context.read<AppState>();
+        if (appState.currentUrl.isNotEmpty) {
+          debugPrint('🚀 自动加载网址: ${appState.currentUrl}');
+          _currentLoadedUrl = appState.currentUrl;
+          await _webViewController.loadUrl(appState.currentUrl);
+        }
+      }
+    });
   }
 
-  // 加载完成回调
   void _onLoadComplete() async {
     _adjustWebViewZoom();
     
-    // 静默更新缓存，不显示提示
-    if (_loadStartTime != null) {
-      final appState = context.read<AppState>();
-      await appState.updateCacheAsSuccess(_currentLoadedUrl);
+    // 清除错误状态
+    if (mounted) {
+      setState(() {
+        _loadError = null;
+        _showNotFound = false;
+      });
+    }
+    
+    // 生成favicon URL
+    if (_currentLoadedUrl.isNotEmpty && mounted) {
+      final uri = Uri.parse(_currentLoadedUrl);
+      final favIconUrl = '${uri.scheme}://${uri.host}/favicon.ico';
+      context.read<AppState>().updateFavIcon(favIconUrl);
     }
   }
 
@@ -133,6 +153,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
 
   void _loadUrl(AppState appState) async {
     final url = _urlController.text.trim();
+    
     if (!url.startsWith('https://')) {
       appState.setError('⚠️ 仅支持 HTTPS 网站');
       return;
@@ -141,418 +162,95 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
     try {
       appState.setLoading(true);
       appState.setError(null);
-      _loadStartTime = DateTime.now(); // 记录加载开始时间
-      _isRefreshing = false; // 标记不是刷新操作
+      
+      setState(() {
+        _loadError = null;
+        _showNotFound = false;
+      });
       
       await appState.saveUrl(url);
       
       if (_isWebViewInitialized && _currentLoadedUrl != url) {
         _currentLoadedUrl = url;
         
-        // 启动30秒超时监控
-        _startLoadTimeoutMonitor(url, appState);
-        
-        // 启动网络错误监测（5秒内）
-        _startNetworkErrorMonitor(url, appState);
+        // 启动加载监控
+        _startLoadMonitor(url);
         
         await _webViewController.loadUrl(url);
-        // 加载后隐藏地址栏
-        setState(() {
-          _isUrlBarVisible = false;
-        });
       }
     } catch (e) {
       appState.setError('加载失败: $e');
-      debugPrint('❌ 加载异常，尝试使用缓存: $e');
-      _tryLoadFromCache(appState);
+      setState(() {
+        _loadError = '网络连接失败';
+      });
     } finally {
       appState.setLoading(false);
     }
   }
 
-  // 启动超时监控
-  void _startLoadTimeoutMonitor(String url, AppState appState) async {
-    await Future.delayed(const Duration(seconds: 30));
+  // 启动加载监控
+  void _startLoadMonitor(String url) async {
+    // 等待10秒检查加载状态
+    await Future.delayed(const Duration(seconds: 10));
     
     if (!mounted) return;
     
-    // 检查是否还在加载中
-    if (_loadingProgress < 1.0 && _loadingProgress > 0) {
-      debugPrint('⚠️ 加载超时30秒，尝试使用缓存');
-      _tryLoadFromCache(appState);
+    // 如果10秒后进度还是0，说明可能网络断开或404
+    if (_loadingProgress == 0) {
+      setState(() {
+        _loadError = '无法连接到该网址';
+      });
     }
-  }
-
-  // 监测网络错误（快速失败场景）
-  void _startNetworkErrorMonitor(String url, AppState appState) async {
-    // 等5秒，检查是否有进度
-    await Future.delayed(const Duration(seconds: 5));
-    
-    if (!mounted) return;
-    
-    // 如果5秒后进度还是0，说明可能网络断开或无法连接
-    if (_loadingProgress == 0 || _loadingProgress == 0.5) {
-      debugPrint('❌ 检测到网络可能无法连接，立即使用缓存');
-      appState.setError('🚫 网络连接失败');
-      _tryLoadFromCache(appState);
-    }
-  }
-
-  // 尝试使用缓存数据
-  void _tryLoadFromCache(AppState appState) async {
-    try {
-      // 获取当前URL的缓存
-      final cacheData = await appState.getCacheForUrl(_currentLoadedUrl);
-      
-      if (cacheData != null && cacheData.isLoadSuccess && cacheData.lastSuccessTime != null) {
-        final cacheAge = DateTime.now().difference(cacheData.lastSuccessTime!).inMinutes;
-        
-        // 显示弹窗提示（不管是刷新还是普通加载）
-        if (mounted) {
-          _showCacheUsageDialog(appState, cacheData, cacheAge);
-        }
-      } else {
-        // 无可用缓存，显示错误弹窗
-        if (mounted) {
-          _showNoCacheDialog();
-        }
-      }
-    } catch (e) {
-      debugPrint('❌ 加载缓存失败: $e');
-    }
-  }
-
-  // 显示缓存使用对话框（统一处理所有网络异常）
-  void _showCacheUsageDialog(AppState appState, CacheData cacheData, int cacheAge) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(
-              _isRefreshing ? Icons.refresh_outlined : Icons.cloud_off_outlined,
-              color: Colors.orange,
-              size: 28,
-            ),
-            const SizedBox(width: 12),
-            Text(_isRefreshing ? '刷新失败' : '网络连接失败'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _isRefreshing ? '无法刷新页面' : '无法连接到网络',
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(Icons.cached, color: Colors.blue.shade700, size: 18),
-                      const SizedBox(width: 6),
-                      Text(
-                        '可用缓存数据',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue.shade700,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'URL: ${cacheData.url}',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(Icons.access_time, size: 14, color: Colors.grey),
-                      const SizedBox(width: 4),
-                      Text(
-                        '缓存时间: $cacheAge分钟前',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              '💾 将使用缓存数据继续浏览',
-              style: TextStyle(fontSize: 14, color: Colors.black87),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              // 不使用缓存，保持当前状态
-            },
-            child: const Text('取消'),
-          ),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.pop(context);
-              // 使用缓存数据
-              appState.setError(null);
-              debugPrint('💾 用户选择使用缓存数据 [$_currentLoadedUrl]');
-            },
-            icon: const Icon(Icons.cached, size: 18),
-            label: const Text('使用缓存'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-            ),
-          ),
-          if (_isRefreshing)
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                // 重试刷新
-                appState.setError(null);
-                _refresh();
-              },
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('重试'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-              ),
-            ),
-          if (!_isRefreshing)
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.pop(context);
-                // 重试加载
-                appState.setError(null);
-                _loadUrl(appState);
-              },
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('重试'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-              ),
-            ),
-        ],
-      ),
-    );
   }
 
   void _refresh() async {
     if (_isWebViewInitialized) {
       setState(() {
-        _isRefreshing = true; // 标记为刷新操作
+        _loadError = null;
+        _showNotFound = false;
       });
-      _loadStartTime = DateTime.now(); // 记录刷新开始时间
-      
-      final appState = context.read<AppState>();
-      
-      // 直接执行刷新，不提前询问
-      _executeRefresh(appState);
+      _webViewController.reload();
     }
   }
 
-  // 执行实际的刷新操作
-  void _executeRefresh(AppState appState) {
-    // 启动网络错误监测（5秒内）
-    _startNetworkErrorMonitor(_currentLoadedUrl, appState);
-    _webViewController.reload();
-  }
-
-  // 显示缓存信息
-  void _showCacheInfo() async {
+  void _goHome() {
     final appState = context.read<AppState>();
-    final allCacheInfo = await appState.getAllCacheInfo();
-    
-    if (mounted) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Row(
-            children: [
-              Icon(Icons.storage, color: Colors.blue),
-              SizedBox(width: 8),
-              Text('缓存信息'),
-            ],
-          ),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: SingleChildScrollView(
-              child: SelectableText(
-                allCacheInfo,
-                style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('关闭'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                await appState.clearAllCache();
-                if (context.mounted) {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('✅ 所有缓存已清除'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
-              },
-              child: const Text('清除全部'),
-            ),
-          ],
-        ),
-      );
-    }
+    // 不清除网址，只重置页面信息和状态
+    appState.resetPageInfo();
+    setState(() {
+      _currentLoadedUrl = '';
+      _loadError = null;
+      _showNotFound = false;
+    });
   }
 
-  void _print() {
-    // webview_windows暂不支持直接打印，使用JavaScript调用浏览器打印
-    if (_isWebViewInitialized) {
-      _webViewController.executeScript('window.print()');
-    }
-  }
-
-  // 显示无缓存对话框
-  void _showNoCacheDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.error_outline, color: Colors.red, size: 28),
-            SizedBox(width: 12),
-            Text('网络不可用'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.cloud_off, color: Colors.red, size: 20),
-                SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '无法连接到网络',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.red.shade200),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: Colors.red.shade700, size: 18),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      '该URL暂无缓存数据',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              '请检查网络连接后重试',
-              style: TextStyle(fontSize: 14, color: Colors.black87),
-            ),
-          ],
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('确定'),
-          ),
-        ],
-      ),
-    );
-  }
-
- // 截长图功能 - 使用打印到PDF的方式
-  void _captureFullPage() async {
-    if (!_isWebViewInitialized) return;
-
+  // 截图功能
+  Future<void> _takeScreenshot() async {
     try {
-      // 显示提示
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('导出PDF'),
-            content: const Text(
-              '点击确定后将打开打印对话框\n\n'
-              '请按照以下步骤操作：\n'
-              '1️⃣ 目标打印机：选择"另存为PDF"或"Microsoft Print to PDF"\n'
-              '2️⃣ 缩放：设置为"100%"或"默认"\n'
-              '3️⃣ 其他设置：保持默认即可\n'
-              '4️⃣ 点击"打印"按钮\n\n'
-              '✅ PDF文件将包含完整的页面内容',
-              style: TextStyle(fontSize: 14),
+      // 选择保存位置
+      final result = await FilePicker.platform.saveFile(
+        dialogTitle: '保存截图',
+        fileName: 'screenshot_${DateTime.now().millisecondsSinceEpoch}.png',
+        type: FileType.image,
+      );
+
+      if (result != null) {
+        // 注意：webview_windows 不支持直接截图，需要使用其他方法
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('截图功能暂未实现，webview_windows 不支持直接截图'),
+              backgroundColor: Colors.orange,
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('取消'),
-              ),
-              ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _executePrintToPDF();
-                },
-                child: const Text('开始导出'),
-              ),
-            ],
-          ),
-        );
+          );
+        }
       }
     } catch (e) {
+      debugPrint('截图失败: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('操作失败: $e'),
+            content: Text('截图失败: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -560,297 +258,165 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
     }
   }
 
-  // 执行打印到PDF
-  void _executePrintToPDF() async {
+  // 打印功能
+  Future<void> _printPage() async {
     try {
-      await _webViewController.executeScript('''
-        (function() {
-          // 保存当前缩放设置
-          const originalViewport = document.querySelector('meta[name="viewport"]');
-          const originalViewportContent = originalViewport ? originalViewport.content : '';
-          
-          // 移除Deskify的响应式样式
-          const deskifyStyle = document.getElementById('deskify-responsive-style');
-          if (deskifyStyle) {
-            deskifyStyle.remove();
-          }
-          
-          // 临时修改页面样式以优化打印效果
-          const style = document.createElement('style');
-          style.id = 'print-optimization';
-          style.textContent = `
-            @page {
-              size: auto;
-              margin: 10mm;
-            }
-            
-            @media print {
-              html, body {
-                width: 100% !important;
-                height: auto !important;
-                margin: 0 !important;
-                padding: 0 !important;
-                overflow: visible !important;
-                zoom: 1 !important;
-                transform: none !important;
-              }
-              
-              body {
-                zoom: 1.0 !important;
-                -moz-transform: scale(1.0) !important;
-                -webkit-transform: scale(1.0) !important;
-                transform: scale(1.0) !important;
-              }
-              
-              * {
-                max-width: 100% !important;
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-                box-sizing: border-box !important;
-              }
-              
-              img, video, iframe {
-                max-width: 100% !important;
-                height: auto !important;
-                page-break-inside: avoid !important;
-              }
-              
-              /* 避免内容被截断 */
-              div, section, article {
-                page-break-inside: avoid !important;
-              }
-            }
-          `;
-          document.head.appendChild(style);
-          
-          // 临时设置viewport为打印优化
-          if (originalViewport) {
-            originalViewport.content = 'width=device-width, initial-scale=1.0';
-          }
-          
-          // 临时重置body样式
-          const bodyStyle = document.body.style;
-          const originalMaxWidth = bodyStyle.maxWidth;
-          const originalOverflowX = bodyStyle.overflowX;
-          bodyStyle.maxWidth = 'none';
-          bodyStyle.overflowX = 'visible';
-          
-          // 触发打印
-          window.print();
-          
-          // 打印完成后恢复样式
-          setTimeout(() => {
-            const printStyle = document.getElementById('print-optimization');
-            if (printStyle) printStyle.remove();
-            
-            // 恢复viewport
-            if (originalViewport) {
-              originalViewport.content = originalViewportContent;
-            }
-            
-            // 恢复body样式
-            bodyStyle.maxWidth = originalMaxWidth;
-            bodyStyle.overflowX = originalOverflowX;
-            
-            // 重新应用Deskify样式
-            if (!document.getElementById('deskify-responsive-style')) {
-              const style = document.createElement('style');
-              style.id = 'deskify-responsive-style';
-              style.textContent = `
-                * {
-                  max-width: 100% !important;
-                  box-sizing: border-box !important;
-                }
-                img, video, iframe {
-                  max-width: 100% !important;
-                  height: auto !important;
-                }
-              `;
-              document.head.appendChild(style);
-            }
-          }, 1000);
-        })();
-      ''');
-
+      // webview_windows 支持打印
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('请在打印对话框中选择"另存为PDF"，并确保缩放设置为100%'),
-            duration: Duration(seconds: 4),
-            backgroundColor: Colors.blue,
+            content: Text('打印功能暂未实现'),
+            backgroundColor: Colors.orange,
           ),
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('打印失败: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+      debugPrint('打印失败: $e');
+    }
+  }
+
+  // 导出PDF
+  Future<void> _exportPdf() async {
+    try {
+      final result = await FilePicker.platform.saveFile(
+        dialogTitle: '导出PDF',
+        fileName: 'export_${DateTime.now().millisecondsSinceEpoch}.pdf',
+        type: FileType.custom,
+        allowedExtensions: ['pdf'],
+      );
+
+      if (result != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('PDF导出功能暂未实现'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
       }
+    } catch (e) {
+      debugPrint('导出PDF失败: $e');
+    }
+  }
+
+  // 导出Markdown
+  Future<void> _exportMarkdown() async {
+    try {
+      final result = await FilePicker.platform.saveFile(
+        dialogTitle: '导出Markdown',
+        fileName: 'export_${DateTime.now().millisecondsSinceEpoch}.md',
+        type: FileType.custom,
+        allowedExtensions: ['md'],
+      );
+
+      if (result != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Markdown导出功能暂未实现'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('导出Markdown失败: $e');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        children: [
-          // 自定义标题栏
-          const CustomTitleBar(),
-          
-          // 工具栏
-          _buildToolbar(),
-          
-          // 错误提示
-          Consumer<AppState>(
-            builder: (context, appState, _) {
-              if (appState.errorMessage != null) {
-                return Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(8),
-                  color: const Color(0xFFFFEEEE),
-                  child: Text(
-                    appState.errorMessage!,
-                    style: const TextStyle(color: Color(0xFFCC3333)),
-                  ),
-                );
-              }
-              return const SizedBox.shrink();
-            },
-          ),
-          
-          // 进度条
-          if (_loadingProgress > 0 && _loadingProgress < 1)
-            LinearProgressIndicator(value: _loadingProgress),
-          
-          // WebView内容区
-          Expanded(
-            child: _buildWebView(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildToolbar() {
     return Consumer<AppState>(
-      builder: (context, appState, _) {
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          height: _isUrlBarVisible ? 56 : 48,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF2C2C2C), Color(0xFF3A3A3A)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
+      builder: (context, appState, child) {
+        return Scaffold(
+          appBar: CustomTitleBar(
+            onRefresh: _currentLoadedUrl.isNotEmpty ? _refresh : null,
+            onHome: _currentLoadedUrl.isNotEmpty ? _goHome : null,
+            onToggleUrlBar: () {
+              setState(() {
+                _isToolbarVisible = !_isToolbarVisible;
+              });
+            },
+            isUrlBarVisible: _isToolbarVisible,
+            pageTitle: appState.pageTitle,
+            favIconUrl: appState.favIconUrl,
+            hasUrl: _currentLoadedUrl.isNotEmpty,  // 传递是否有网址
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
+          body: Column(
             children: [
-              // 地址栏切换按钮
-              _buildIconButton(
-                icon: _isUrlBarVisible ? Icons.keyboard_arrow_up : Icons.edit,
-                tooltip: _isUrlBarVisible ? '隐藏地址栏' : '显示地址栏',
-                onPressed: () {
-                  setState(() {
-                    _isUrlBarVisible = !_isUrlBarVisible;
-                  });
-                },
-              ),
-              const SizedBox(width: 8),
-              
-              // URL输入框(只在显示时渲染)
-              if (_isUrlBarVisible)
-                Expanded(
-                  child: Container(
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF505050),
-                      borderRadius: BorderRadius.circular(6),
+              // 工具栏（独立控制）
+              if (_isToolbarVisible && _currentLoadedUrl.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border(
+                      bottom: BorderSide(color: Colors.grey.shade300),
                     ),
-                    child: TextField(
-                      controller: _urlController,
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
-                      decoration: InputDecoration(
-                        hintText: '输入HTTPS网址...',
-                        hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13),
-                        prefixIcon: const Icon(Icons.language, size: 16, color: Colors.white70),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                  ),
+                  child: Row(
+                    children: [
+                      _buildToolButton(
+                        icon: Icons.print_outlined,
+                        label: '打印',
+                        onPressed: _printPage,
+                        color: Colors.green,
                       ),
-                      onSubmitted: (_) => _loadUrl(appState),
-                    ),
+                      _buildToolButton(
+                        icon: Icons.screenshot_outlined,
+                        label: '截图',
+                        onPressed: _takeScreenshot,
+                        color: Colors.orange,
+                      ),
+                      _buildToolButton(
+                        icon: Icons.picture_as_pdf_outlined,
+                        label: 'PDF',
+                        onPressed: _exportPdf,
+                        color: Colors.red,
+                      ),
+                      _buildToolButton(
+                        icon: Icons.article_outlined,
+                        label: 'MD',
+                        onPressed: _exportMarkdown,
+                        color: Colors.purple,
+                      ),
+                    ],
                   ),
                 ),
-              if (_isUrlBarVisible) const SizedBox(width: 8),
               
-              // 打开/加载按钮
-              if (_isUrlBarVisible)
+              // 错误提示
+              if (appState.errorMessage != null)
                 Container(
-                  height: 36,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF4A90E2), Color(0xFF357ABD)],
-                    ),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(6),
-                      onTap: appState.isLoading ? null : () => _loadUrl(appState),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.all(12),
+                  color: Colors.red.shade50,
+                  child: Row(
+                    children: [
+                      const Icon(Icons.error_outline, color: Colors.red),
+                      const SizedBox(width: 8),
+                      Expanded(
                         child: Text(
-                          appState.isLoading ? '加载中...' : '打开',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
-                          ),
+                          appState.errorMessage!,
+                          style: const TextStyle(color: Colors.red),
                         ),
                       ),
-                    ),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: () => appState.setError(null),
+                      ),
+                    ],
                   ),
                 ),
-              if (_isUrlBarVisible) const SizedBox(width: 8),
               
-              const Spacer(),
+              // 加载进度条
+              if (appState.isLoading)
+                LinearProgressIndicator(
+                  value: _loadingProgress > 0 ? _loadingProgress : null,
+                ),
               
-              // 功能按钮组
-              _buildIconButton(
-                icon: Icons.refresh,
-                tooltip: '刷新',
-                onPressed: _refresh,
-              ),
-              const SizedBox(width: 4),
-              _buildIconButton(
-                icon: Icons.storage,
-                tooltip: '缓存信息',
-                onPressed: _showCacheInfo,
-              ),
-              const SizedBox(width: 4),
-              _buildIconButton(
-                icon: Icons.picture_as_pdf,
-                tooltip: '另存为PDF（长图）',
-                onPressed: _captureFullPage,
-              ),
-              const SizedBox(width: 4),
-              _buildIconButton(
-                icon: Icons.print,
-                tooltip: '打印',
-                onPressed: _print,
+              // 主内容区域
+              Expanded(
+                child: _buildContent(appState),
               ),
             ],
           ),
@@ -859,97 +425,72 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
     );
   }
 
-  // 统一样式的图标按钮
-  Widget _buildIconButton({
+  Widget _buildContent(AppState appState) {
+    // 显示欢迎页
+    if (appState.shouldShowWelcome) {
+      return WelcomePage(
+        cachedUrl: appState.currentUrl,
+        onLoadCached: () {
+          if (appState.currentUrl.isNotEmpty) {
+            _loadUrl(appState);
+          }
+        },
+      );
+    }
+    
+    // 显示错误页
+    if (_loadError != null) {
+      return ErrorPage(
+        errorMessage: _loadError!,
+        url: _currentLoadedUrl,
+        onRetry: _refresh,
+        onGoBack: _goHome,
+      );
+    }
+    
+    // 显示404页
+    if (_showNotFound) {
+      return NotFoundPage(
+        url: _currentLoadedUrl,
+        onRetry: _refresh,
+        onGoBack: _goHome,
+      );
+    }
+    
+    // 显示WebView
+    if (_isWebViewInitialized) {
+      return Webview(_webViewController);
+    }
+    
+    // 初始化中
+    return const Center(
+      child: CircularProgressIndicator(),
+    );
+  }
+  
+  // 工具按钮组件
+  Widget _buildToolButton({
     required IconData icon,
-    required String tooltip,
-    required VoidCallback onPressed,
+    required String label,
+    required VoidCallback? onPressed,
+    required Color color,
   }) {
+    final isEnabled = onPressed != null;
+    
     return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(6),
-          onTap: onPressed,
-          child: Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Icon(icon, color: Colors.white, size: 18),
+      message: label,
+      child: TextButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+        style: TextButton.styleFrom(
+          foregroundColor: isEnabled ? color : Colors.grey,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 8,
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildWebView() {
-    return Consumer<AppState>(
-      builder: (context, appState, _) {
-        // 显示缓存加载状态
-        if (appState.isLoadingFromCache) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 16),
-                const Text(
-                  '正在加载缓存数据...',
-                  style: TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '如果超过30秒未响应，将使用缓存数据',
-                  style: TextStyle(color: Colors.grey.withValues(alpha: 0.6), fontSize: 12),
-                ),
-              ],
-            ),
-          );
-        }
-
-        if (!appState.isValidUrl) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.language, size: 80, color: Colors.grey),
-                const SizedBox(height: 16),
-                Text(
-                  '🚀 Deskify',
-                  style: Theme.of(context).textTheme.headlineMedium,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  '把任意网站变成桌面应用',
-                  style: TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  '在上方输入HTTPS网址开始使用',
-                  style: TextStyle(color: Colors.grey, fontSize: 14),
-                ),
-              ],
-            ),
-          );
-        }
-
-        if (!_isWebViewInitialized) {
-          return const Center(child: CircularProgressIndicator());
-        }
-
-        // 只在URL改变时加载
-        if (appState.isValidUrl && _currentLoadedUrl != appState.currentUrl) {
-          _currentLoadedUrl = appState.currentUrl;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _webViewController.loadUrl(appState.currentUrl);
-          });
-        }
-
-        return Webview(_webViewController);
-      },
     );
   }
 }
