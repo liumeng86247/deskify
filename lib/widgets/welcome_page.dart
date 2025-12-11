@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/app_state.dart';
 
 /// 欢迎页 - 当没有URL时显示
 class WelcomePage extends StatefulWidget {
@@ -39,18 +41,19 @@ class _WelcomePageState extends State<WelcomePage> {
   }
 
   void _handleLoadUrl() {
+    final t = context.read<AppState>().tr;
     final url = _urlController.text.trim();
     
     if (url.isEmpty) {
       setState(() {
-        _errorMessage = '请输入网址';
+        _errorMessage = t(zh: '请输入网址', en: 'Please enter a URL');
       });
       return;
     }
     
     if (!url.startsWith('https://')) {
       setState(() {
-        _errorMessage = '⚠️ 仅支持 HTTPS 网站';
+        _errorMessage = t(zh: '⚠️ 仅支持 HTTPS 网站', en: '⚠️ HTTPS sites only');
       });
       return;
     }
@@ -64,6 +67,8 @@ class _WelcomePageState extends State<WelcomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final appState = context.watch<AppState>();
+    final t = appState.tr;
     // 获取屏幕宽度
     final screenWidth = MediaQuery.of(context).size.width;
     final isSmallScreen = screenWidth < 900; // 小屏幕阈值
@@ -113,7 +118,7 @@ class _WelcomePageState extends State<WelcomePage> {
               
               // 标题
               Text(
-                '欢迎使用 Deskify',
+                t(zh: '欢迎使用 Deskify', en: 'Welcome to Deskify'),
                 style: TextStyle(
                   fontSize: isSmallScreen ? 24 : 32,
                   fontWeight: FontWeight.bold,
@@ -126,7 +131,7 @@ class _WelcomePageState extends State<WelcomePage> {
               
               // 副标题
               Text(
-                '将任意网站封装为桌面应用',
+                t(zh: '将任意网站封装为桌面应用', en: 'Turn any website into a desktop app'),
                 style: TextStyle(
                   fontSize: isSmallScreen ? 13 : 15,
                   color: Colors.grey.shade700,
@@ -175,7 +180,7 @@ class _WelcomePageState extends State<WelcomePage> {
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            '上次访问',
+                            t(zh: '上次访问', en: 'Last visit'),
                             style: TextStyle(
                               fontSize: isSmallScreen ? 13 : 14,
                               fontWeight: FontWeight.w600,
@@ -189,7 +194,7 @@ class _WelcomePageState extends State<WelcomePage> {
                             child: TextField(
                               controller: _urlController,
                               decoration: InputDecoration(
-                                hintText: '输入 HTTPS 网址',
+                                hintText: t(zh: '输入 HTTPS 网址', en: 'Enter HTTPS URL'),
                                 hintStyle: TextStyle(
                                   fontSize: isSmallScreen ? 11 : 13,
                                   color: Colors.grey.shade400,
@@ -203,7 +208,7 @@ class _WelcomePageState extends State<WelcomePage> {
                                       _errorMessage = null;
                                     });
                                   },
-                                  tooltip: '清空',
+                                  tooltip: t(zh: '清空', en: 'Clear'),
                                   padding: EdgeInsets.zero,
                                   constraints: const BoxConstraints(),
                                 ),
@@ -254,7 +259,9 @@ class _WelcomePageState extends State<WelcomePage> {
                               size: isSmallScreen ? 14 : 16,
                             ),
                             label: Text(
-                              _isUrlModified ? '访问' : '继续',
+                              _isUrlModified
+                                  ? t(zh: '访问', en: 'Open')
+                                  : t(zh: '继续', en: 'Continue'),
                               style: TextStyle(
                                 fontSize: isSmallScreen ? 12 : 13,
                               ),
@@ -321,7 +328,7 @@ class _WelcomePageState extends State<WelcomePage> {
                       ),
                       SizedBox(height: isSmallScreen ? 12 : 16),
                       Text(
-                        '输入 HTTPS 网址开始使用',
+                        t(zh: '输入 HTTPS 网址开始使用', en: 'Enter an HTTPS URL to start'),
                         style: TextStyle(
                           fontSize: isSmallScreen ? 15 : 17,
                           fontWeight: FontWeight.bold,
@@ -329,7 +336,10 @@ class _WelcomePageState extends State<WelcomePage> {
                       ),
                       SizedBox(height: isSmallScreen ? 8 : 12),
                       Text(
-                        '请在顶部标题栏的地址栏中输入网址',
+                        t(
+                          zh: '请在顶部标题栏的地址栏中输入网址',
+                          en: 'Please type the URL in the top title bar input',
+                        ),
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: isSmallScreen ? 12 : 14,
@@ -341,7 +351,7 @@ class _WelcomePageState extends State<WelcomePage> {
                 ),
               
               // 功能介绍卡片
-              _buildFeatureCards(isSmallScreen),
+              _buildFeatureCards(isSmallScreen, t),
               
               SizedBox(height: isSmallScreen ? 16 : 32),
               
@@ -368,7 +378,7 @@ class _WelcomePageState extends State<WelcomePage> {
                     ),
                     SizedBox(height: isSmallScreen ? 6 : 8),
                     Text(
-                      '快速开始',
+                      t(zh: '快速开始', en: 'Quick start'),
                       style: TextStyle(
                         fontSize: isSmallScreen ? 15 : 17,
                         fontWeight: FontWeight.bold,
@@ -376,7 +386,10 @@ class _WelcomePageState extends State<WelcomePage> {
                     ),
                     SizedBox(height: isSmallScreen ? 6 : 8),
                     Text(
-                      '在顶部地址栏输入 HTTPS 网址，即可开始使用',
+                      t(
+                        zh: '在顶部地址栏输入 HTTPS 网址，即可开始使用',
+                        en: 'Enter an HTTPS URL in the top bar to start',
+                      ),
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: isSmallScreen ? 12 : 14,
@@ -391,7 +404,10 @@ class _WelcomePageState extends State<WelcomePage> {
               
               // 版权信息
               Text(
-                '© 2025 Deskify - 定制桌面应用解决方案',
+                t(
+                  zh: '© 2025 Deskify - 定制桌面应用解决方案',
+                  en: '© 2025 Deskify - Custom desktop app solutions',
+                ),
                 style: TextStyle(
                   fontSize: isSmallScreen ? 10 : 12,
                   color: Colors.grey.shade500,
@@ -405,7 +421,10 @@ class _WelcomePageState extends State<WelcomePage> {
     );
   }
   
-  Widget _buildFeatureCards(bool isSmallScreen) {
+  Widget _buildFeatureCards(
+    bool isSmallScreen,
+    String Function({required String zh, required String en}) t,
+  ) {
     return Wrap(
       spacing: isSmallScreen ? 8 : 14,
       runSpacing: isSmallScreen ? 8 : 14,
@@ -413,29 +432,29 @@ class _WelcomePageState extends State<WelcomePage> {
       children: [
         _buildFeatureCard(
           icon: Icons.language,
-          title: '跨平台支持',
+          title: t(zh: '跨平台支持', en: 'Cross-platform'),
           description: 'Windows / macOS / Linux',
           color: Colors.blue,
           isSmallScreen: isSmallScreen,
         ),
         _buildFeatureCard(
           icon: Icons.security,
-          title: 'HTTPS 安全',
-          description: '仅支持安全的HTTPS网站',
+          title: t(zh: 'HTTPS 安全', en: 'HTTPS only'),
+          description: t(zh: '仅支持安全的HTTPS网站', en: 'Only secure HTTPS sites'),
           color: Colors.green,
           isSmallScreen: isSmallScreen,
         ),
         _buildFeatureCard(
           icon: Icons.memory,
-          title: '记忆功能',
-          description: '自动记住上次访问的网址',
+          title: t(zh: '记忆功能', en: 'Memory'),
+          description: t(zh: '自动记住上次访问的网址', en: 'Remembers the last URL'),
           color: Colors.purple,
           isSmallScreen: isSmallScreen,
         ),
         _buildFeatureCard(
           icon: Icons.settings_overscan,
-          title: '自适应缩放',
-          description: '窗口大小自动适配',
+          title: t(zh: '自适应缩放', en: 'Auto zoom'),
+          description: t(zh: '窗口大小自动适配', en: 'Adapts to window size'),
           color: Colors.orange,
           isSmallScreen: isSmallScreen,
         ),

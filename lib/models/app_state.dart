@@ -8,12 +8,14 @@ class AppState extends ChangeNotifier {
   String _pageTitle = 'Deskify'; // 页面标题
   String? _favIconUrl; // 网站图标URL
   bool _showWelcomePage = false; // 是否显示欢迎页
+  bool _isEnglish = false; // 语言：false=中文，true=英文
 
   String get currentUrl => _currentUrl;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
   String get pageTitle => _pageTitle;
   String? get favIconUrl => _favIconUrl;
+  bool get isEnglish => _isEnglish;
 
   // 是否是有效的HTTPS URL
   bool get isValidUrl {
@@ -44,6 +46,17 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // 文案翻译助手
+  String tr({required String zh, required String en}) => _isEnglish ? en : zh;
+
+  // 初始化：加载语言与URL
+  Future<void> initialize() async {
+    await Future.wait([
+      _loadSavedLanguage(),
+      loadSavedUrl(),
+    ]);
+  }
+
   // 加载保存的URL
   Future<void> loadSavedUrl() async {
     try {
@@ -63,6 +76,36 @@ class AppState extends ChangeNotifier {
       _currentUrl = '';
       _showWelcomePage = true;
       notifyListeners();
+    }
+  }
+
+  Future<void> _loadSavedLanguage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString('language');
+      if (saved == 'en') {
+        _isEnglish = true;
+      } else {
+        _isEnglish = false;
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('❌ 加载语言设置失败: $e');
+    }
+  }
+
+  Future<void> toggleLanguage() async {
+    await setLanguage(!_isEnglish);
+  }
+
+  Future<void> setLanguage(bool isEnglish) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _isEnglish = isEnglish;
+      await prefs.setString('language', _isEnglish ? 'en' : 'zh');
+      notifyListeners();
+    } catch (e) {
+      debugPrint('❌ 保存语言设置失败: $e');
     }
   }
 

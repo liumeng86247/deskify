@@ -430,6 +430,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
             onRefresh: _currentLoadedUrl.isNotEmpty ? _refresh : null,
             onHome: _currentLoadedUrl.isNotEmpty ? _goHome : null,
             onDownload: _openDownloadManager,
+            onToggleLanguage: () => appState.toggleLanguage(),
             pageTitle: appState.pageTitle,
             favIconUrl: appState.favIconUrl,
             hasUrl: _currentLoadedUrl.isNotEmpty,
@@ -437,6 +438,7 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
               t.status == DownloadStatus.running || 
               t.status == DownloadStatus.pending
             ).length,
+            appState: appState,
           ),
           body: Column(
             children: [

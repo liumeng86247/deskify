@@ -1,24 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
+import '../models/app_state.dart';
 
 class CustomTitleBar extends StatelessWidget implements PreferredSizeWidget {
   final VoidCallback? onRefresh;
   final VoidCallback? onHome;
   final VoidCallback? onDownload;  // 下载器入口
+  final VoidCallback? onToggleLanguage; // 切换语言
   final String pageTitle;
   final String? favIconUrl;
   final bool hasUrl;  // 是否有网址
   final int downloadCount;  // 下载任务数
+  final AppState appState;
   
   const CustomTitleBar({
     super.key,
     this.onRefresh,
     this.onHome,
     this.onDownload,
+    this.onToggleLanguage,
     this.pageTitle = 'Deskify',
     this.favIconUrl,
     this.hasUrl = false,
     this.downloadCount = 0,
+    required this.appState,
   });
 
   @override
@@ -74,13 +79,13 @@ class CustomTitleBar extends StatelessWidget implements PreferredSizeWidget {
           if (onHome != null)
             _ToolButton(
               icon: Icons.home,
-              tooltip: '首页',
+              tooltip: appState.tr(zh: '首页', en: 'Home'),
               onPressed: onHome!,
             ),
           if (onRefresh != null)
             _ToolButton(
               icon: Icons.refresh,
-              tooltip: '刷新',
+              tooltip: appState.tr(zh: '刷新', en: 'Reload'),
               onPressed: onRefresh!,
             ),
           
@@ -88,9 +93,22 @@ class CustomTitleBar extends StatelessWidget implements PreferredSizeWidget {
           if (onDownload != null)
             _ToolButton(
               icon: Icons.download_outlined,
-              tooltip: downloadCount > 0 ? '下载 ($downloadCount)' : '下载',
+              tooltip: downloadCount > 0
+                  ? appState.tr(zh: '下载 ($downloadCount)', en: 'Downloads ($downloadCount)')
+                  : appState.tr(zh: '下载', en: 'Downloads'),
               onPressed: onDownload!,
               badge: downloadCount > 0 ? downloadCount : null,
+            ),
+          
+          // 语言切换按钮（紧凑胶囊样式）
+          if (onToggleLanguage != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6.0),
+              child: _LangButton(
+                isEnglish: appState.isEnglish,
+                tooltip: appState.tr(zh: '切换语言', en: 'Toggle language'),
+                onTap: onToggleLanguage!,
+              ),
             ),
           
           // 窗口控制按钮
@@ -201,6 +219,79 @@ class _ToolButtonState extends State<_ToolButton> {
   }
 }
 
+// 语言切换胶囊按钮
+class _LangButton extends StatefulWidget {
+  final bool isEnglish;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  const _LangButton({
+    required this.isEnglish,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  State<_LangButton> createState() => _LangButtonState();
+}
+
+class _LangButtonState extends State<_LangButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool en = widget.isEnglish;
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            height: 28,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: _hovered ? const Color(0x1AFFFFFF) : Colors.transparent,
+              border: Border.all(color: Colors.white24, width: 1),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'EN',
+                  style: TextStyle(
+                    color: en ? Colors.white : Colors.white70,
+                    fontWeight: en ? FontWeight.w700 : FontWeight.w500,
+                    fontSize: 12,
+                  ),
+                ),
+                Text(
+                  ' / ',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontWeight: FontWeight.w500,
+                    fontSize: 12,
+                  ),
+                ),
+                Text(
+                  '中',
+                  style: TextStyle(
+                    color: en ? Colors.white70 : Colors.white,
+                    fontWeight: en ? FontWeight.w500 : FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 class _WindowButton extends StatefulWidget {
   final IconData icon;
   final VoidCallback onPressed;
