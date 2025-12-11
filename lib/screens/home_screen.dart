@@ -338,10 +338,10 @@ class _HomeScreenState extends State<HomeScreen> with WindowListener {
                 _isToolbarVisible = !_isToolbarVisible;
               });
             },
-            isUrlBarVisible: _isToolbarVisible,
+            isUrlBarVisible: _isToolbarVisible,  // 使用 isToolbarVisible 控制工具栏
             pageTitle: appState.pageTitle,
             favIconUrl: appState.favIconUrl,
-            hasUrl: _currentLoadedUrl.isNotEmpty,  // 传递是否有网址
+            hasUrl: _currentLoadedUrl.isNotEmpty,
           ),
           body: Column(
             children: [
