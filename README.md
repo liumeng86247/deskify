@@ -111,13 +111,22 @@ Deskify/
 - 💾 **离线 SQLite 数据库**
 - 🔄 **私有自动更新服务器**
 
-**联系我们**: https://yourcompany.com/deskify
+**联系我们**: https://deskify.jiahetng.com
 
 ---
 
 ## 📄 许可证
 
-MIT License
+本项目采用 **木兰宽松许可证，第2版** (Mulan Permissive Software License, Version 2) 开源协议。
+
+Copyright (c) 2025 Deskify Contributors  
+Deskify is licensed under Mulan PSL v2.  
+You can use this software according to the terms and conditions of the Mulan PSL v2.  
+You may obtain a copy of Mulan PSL v2 at: http://license.coscl.org.cn/MulanPSL2
+
+THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+
+See the [LICENSE](LICENSE) file for more details.
 
 ---
 
