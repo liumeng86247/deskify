@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/app_state.dart';
 
 /// 欢迎页 - 当没有URL时显示
@@ -25,6 +26,15 @@ class _WelcomePageState extends State<WelcomePage> {
   void initState() {
     super.initState();
     _urlController = TextEditingController(text: widget.cachedUrl ?? '');
+  }
+
+  @override
+  void didUpdateWidget(WelcomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 当 cachedUrl 变化时，更新输入框内容
+    if (widget.cachedUrl != oldWidget.cachedUrl) {
+      _urlController.text = widget.cachedUrl ?? '';
+    }
   }
 
   @override
@@ -65,6 +75,77 @@ class _WelcomePageState extends State<WelcomePage> {
     widget.onLoadUrl?.call(url);
   }
 
+  /// 打开官网
+  Future<void> _openOfficialWebsite() async {
+    const url = 'https://www.jiahetng.com';
+    final uri = Uri.parse(url);
+    
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      debugPrint('⚠️ 打开官网失败: $e');
+    }
+  }
+
+  /// 清空缓存并初始化
+  Future<void> _handleClearCache() async {
+    final appState = context.read<AppState>();
+    final t = appState.tr;
+    
+    // 显示确认对话框
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(t(zh: '确认清空', en: 'Confirm Clear')),
+        content: Text(
+          t(
+            zh: '确定要清空所有缓存数据并初始化吗？\n\n这将清除：\n• 上次访问的网址\n• 缓存的服务数据\n\n语言设置将保留。',
+            en: 'Are you sure you want to clear all cache data and initialize?\n\nThis will clear:\n• Last visited URL\n• Cached service data\n\nLanguage settings will be preserved.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(t(zh: '取消', en: 'Cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.red,
+            ),
+            child: Text(t(zh: '清空', en: 'Clear')),
+          ),
+        ],
+      ),
+    );
+    
+    if (confirmed == true) {
+      // 清空URL缓存
+      await appState.clearUrlCache();
+      
+      // 清空输入框
+      _urlController.clear();
+      
+      // 显示成功提示
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(t(zh: '缓存已清空，已初始化', en: 'Cache cleared, initialized')),
+            duration: const Duration(seconds: 2),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+      
+      // 刷新状态
+      setState(() {
+        _errorMessage = null;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
@@ -74,6 +155,8 @@ class _WelcomePageState extends State<WelcomePage> {
     final isSmallScreen = screenWidth < 900; // 小屏幕阈值
     
     return Container(
+      width: double.infinity,
+      height: double.infinity,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -84,15 +167,14 @@ class _WelcomePageState extends State<WelcomePage> {
           ],
         ),
       ),
-      child: Center(
-        child: SingleChildScrollView(
-          padding: EdgeInsets.symmetric(
-            horizontal: isSmallScreen ? 16 : 40,
-            vertical: isSmallScreen ? 12 : 30,
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
+      child: SingleChildScrollView(
+        padding: EdgeInsets.symmetric(
+          horizontal: isSmallScreen ? 16 : 40,
+          vertical: isSmallScreen ? 20 : 40,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
               // Logo/Icon
               Container(
                 padding: EdgeInsets.all(isSmallScreen ? 12 : 20),
@@ -141,13 +223,12 @@ class _WelcomePageState extends State<WelcomePage> {
               
               SizedBox(height: isSmallScreen ? 16 : 32),
               
-              // 地址栏输入区域（可编辑的上次访问网址）
-              if (widget.cachedUrl != null && widget.cachedUrl!.isNotEmpty)
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: isSmallScreen ? double.infinity : 700,
-                  ),
-                  child: Container(
+              // 地址栏输入区域（始终显示输入框）
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: isSmallScreen ? double.infinity : 700,
+                ),
+                child: Container(
                   margin: EdgeInsets.only(bottom: isSmallScreen ? 14 : 24),
                   padding: EdgeInsets.symmetric(
                     horizontal: isSmallScreen ? 12 : 20,
@@ -156,7 +237,12 @@ class _WelcomePageState extends State<WelcomePage> {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.blue.shade200, width: 2),
+                    border: Border.all(
+                      color: widget.cachedUrl != null && widget.cachedUrl!.isNotEmpty
+                          ? Colors.blue.shade200
+                          : Colors.grey.shade300,
+                      width: 2,
+                    ),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.blue.withValues(alpha: 0.1),
@@ -172,21 +258,38 @@ class _WelcomePageState extends State<WelcomePage> {
                       // 单行布局：标题 + 地址栏 + 按钮
                       Row(
                         children: [
-                          // 标题图标
-                          Icon(
-                            Icons.history,
-                            color: Colors.blue,
-                            size: isSmallScreen ? 18 : 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            t(zh: '上次访问', en: 'Last visit'),
-                            style: TextStyle(
-                              fontSize: isSmallScreen ? 13 : 14,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black87,
+                          // 标题图标和文字（如果有缓存URL则显示"上次访问"，否则显示"输入网址"）
+                          if (widget.cachedUrl != null && widget.cachedUrl!.isNotEmpty) ...[
+                            Icon(
+                              Icons.history,
+                              color: Colors.blue,
+                              size: isSmallScreen ? 18 : 20,
                             ),
-                          ),
+                            const SizedBox(width: 8),
+                            Text(
+                              t(zh: '上次访问', en: 'Last visit'),
+                              style: TextStyle(
+                                fontSize: isSmallScreen ? 13 : 14,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ] else ...[
+                            Icon(
+                              Icons.link,
+                              color: Colors.blue,
+                              size: isSmallScreen ? 18 : 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              t(zh: '输入网址', en: 'Enter URL'),
+                              style: TextStyle(
+                                fontSize: isSmallScreen ? 13 : 14,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ],
                           const SizedBox(width: 12),
                           
                           // 地址栏（占据剩余空间）
@@ -251,15 +354,17 @@ class _WelcomePageState extends State<WelcomePage> {
                           
                           const SizedBox(width: 12),
                           
-                          // 按钮
+                          // 访问按钮
                           ElevatedButton.icon(
                             onPressed: _handleLoadUrl,
                             icon: Icon(
-                              _isUrlModified ? Icons.open_in_new : Icons.refresh,
+                              _isUrlModified || (widget.cachedUrl == null || widget.cachedUrl!.isEmpty)
+                                  ? Icons.open_in_new
+                                  : Icons.refresh,
                               size: isSmallScreen ? 14 : 16,
                             ),
                             label: Text(
-                              _isUrlModified
+                              _isUrlModified || (widget.cachedUrl == null || widget.cachedUrl!.isEmpty)
                                   ? t(zh: '访问', en: 'Open')
                                   : t(zh: '继续', en: 'Continue'),
                               style: TextStyle(
@@ -277,6 +382,34 @@ class _WelcomePageState extends State<WelcomePage> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               elevation: 1,
+                            ),
+                          ),
+                          
+                          const SizedBox(width: 8),
+                          
+                          // 初始化按钮
+                          OutlinedButton.icon(
+                            onPressed: _handleClearCache,
+                            icon: Icon(
+                              Icons.refresh,
+                              size: isSmallScreen ? 14 : 16,
+                            ),
+                            label: Text(
+                              t(zh: '初始化', en: 'Init'),
+                              style: TextStyle(
+                                fontSize: isSmallScreen ? 12 : 13,
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.grey.shade700,
+                              side: BorderSide(color: Colors.grey.shade300),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isSmallScreen ? 12 : 16,
+                                vertical: isSmallScreen ? 10 : 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
                             ),
                           ),
                         ],
@@ -299,56 +432,7 @@ class _WelcomePageState extends State<WelcomePage> {
                     ],
                   ),
                 ),
-              )
-              else
-                // 没有缓存网址时显示简单输入框
-                Container(
-                  constraints: BoxConstraints(
-                    maxWidth: isSmallScreen ? double.infinity : 600,
-                  ),
-                  margin: EdgeInsets.only(bottom: isSmallScreen ? 14 : 24),
-                  padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 10,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.web,
-                        size: isSmallScreen ? 32 : 40,
-                        color: Colors.blue,
-                      ),
-                      SizedBox(height: isSmallScreen ? 12 : 16),
-                      Text(
-                        t(zh: '输入 HTTPS 网址开始使用', en: 'Enter an HTTPS URL to start'),
-                        style: TextStyle(
-                          fontSize: isSmallScreen ? 15 : 17,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      SizedBox(height: isSmallScreen ? 8 : 12),
-                      Text(
-                        t(
-                          zh: '请在顶部标题栏的地址栏中输入网址',
-                          en: 'Please type the URL in the top title bar input',
-                        ),
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: isSmallScreen ? 12 : 14,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              ),
               
               // 功能介绍卡片
               _buildFeatureCards(isSmallScreen, t),
@@ -402,22 +486,45 @@ class _WelcomePageState extends State<WelcomePage> {
               
               SizedBox(height: isSmallScreen ? 14 : 24),
               
-              // 版权信息
-              Text(
-                t(
-                  zh: '© 2025 Deskify - 定制桌面应用解决方案',
-                  en: '© 2025 Deskify - Custom desktop app solutions',
-                ),
-                style: TextStyle(
-                  fontSize: isSmallScreen ? 10 : 12,
-                  color: Colors.grey.shade500,
-                ),
-                textAlign: TextAlign.center,
+              // 版权信息和官网链接（合并到一行）
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  Text(
+                    t(
+                      zh: '© 2025 Deskify - 定制桌面应用解决方案',
+                      en: '© 2025 Deskify - Custom desktop app solutions',
+                    ),
+                    style: TextStyle(
+                      fontSize: isSmallScreen ? 10 : 12,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                  Text(
+                    '|',
+                    style: TextStyle(
+                      fontSize: isSmallScreen ? 10 : 12,
+                      color: Colors.grey.shade400,
+                    ),
+                  ),
+                  InkWell(
+                    onTap: _openOfficialWebsite,
+                    child: Text(
+                      'www.jiahetng.com',
+                      style: TextStyle(
+                        fontSize: isSmallScreen ? 10 : 12,
+                        color: Colors.blue.shade600,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
         ),
-      ),
     );
   }
   

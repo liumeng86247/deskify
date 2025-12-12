@@ -153,4 +153,18 @@ class AppState extends ChangeNotifier {
       debugPrint('❌ 保存URL失败: $e');
     }
   }
+
+  // 清除URL缓存（用于打包前清除测试数据）
+  Future<void> clearUrlCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('last_url');
+      _currentUrl = '';
+      _showWelcomePage = true;
+      debugPrint('✅ URL缓存已清除');
+      notifyListeners();
+    } catch (e) {
+      debugPrint('❌ 清除URL缓存失败: $e');
+    }
+  }
 }
