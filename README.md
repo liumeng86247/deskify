@@ -133,3 +133,8 @@ See the [LICENSE](LICENSE) file for more details.
 ## 👥 贡献
 
 欢迎提交 Issue 和 Pull Request！
+
+- 📖 查看 [贡献指南](CONTRIBUTING.md) 了解如何参与项目
+- 📜 阅读 [行为准则](CODE_OF_CONDUCT.md) 了解社区规范
+- 🐛 [报告 Bug](https://github.com/liumeng86247/deskify/issues/new?template=bug_report.md)
+- 💡 [提出功能建议](https://github.com/liumeng86247/deskify/issues/new?template=feature_request.md)

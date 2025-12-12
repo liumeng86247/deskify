@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 项目官网
+    url: https://deskify.jiahetng.com
+    about: 访问 Deskify 项目官网了解更多信息
+  - name: 贡献指南
+    url: https://github.com/liumeng86247/deskify/blob/master/CONTRIBUTING.md
+    about: 查看如何为项目做贡献
+
